@@ -36,6 +36,7 @@ import {
   syncMediaProvidersToDaemon,
 } from './state/config';
 import { applyAppearanceToDocument } from './state/appearance';
+import { applyRaizContextToConfig, useRaizBridge } from './integrations/raiz/bridge';
 import { isMacPlatform } from './utils/platform';
 import {
   createProject,
@@ -135,8 +136,19 @@ export function resolveSettingsCloseConfig(
 }
 
 export function App() {
-  const { t } = useI18n();
+  const { setLocale, t } = useI18n();
   const [config, setConfig] = useState<AppConfig>(() => loadConfig());
+  const handleRaizContext = useCallback(
+    (context: Parameters<typeof applyRaizContextToConfig>[1]) => {
+      if (context?.locale) setLocale(context.locale);
+    },
+    [setLocale],
+  );
+  const raizBridge = useRaizBridge({ onContext: handleRaizContext });
+  const effectiveConfig = useMemo(
+    () => applyRaizContextToConfig(config, raizBridge.context),
+    [config, raizBridge.context],
+  );
   const configRef = useRef(config);
   configRef.current = config;
   const latestPersistedConfigRef = useRef(config);
@@ -201,10 +213,10 @@ export function App() {
   // the old theme. Safe here because the component tree is ssr:false.
   useLayoutEffect(() => {
     applyAppearanceToDocument({
-      theme: config.theme ?? 'system',
-      accentColor: config.accentColor,
+      theme: effectiveConfig.theme ?? 'system',
+      accentColor: effectiveConfig.accentColor,
     });
-  }, [config.theme, config.accentColor]);
+  }, [effectiveConfig.theme, effectiveConfig.accentColor]);
 
   // Tell the daemon what the user is currently looking at, so the MCP
   // server can surface it as `get_active_context` to a coding agent in
@@ -878,6 +890,13 @@ export function App() {
       ),
     [designSystems, config.disabledDesignSystems],
   );
+  const defaultDesignSystemId = useMemo(() => {
+    const raizDesignSystemId = raizBridge.context?.designSystem?.id;
+    if (raizDesignSystemId && enabledDS.some((system) => system.id === raizDesignSystemId)) {
+      return raizDesignSystemId;
+    }
+    return effectiveConfig.designSystemId;
+  }, [effectiveConfig.designSystemId, enabledDS, raizBridge.context?.designSystem?.id]);
 
   return (
     <>
@@ -886,11 +905,13 @@ export function App() {
           key={activeProject.id}
           project={activeProject}
           routeFileName={route.kind === 'project' ? route.fileName : null}
-          config={config}
+          config={effectiveConfig}
           agents={agents}
           skills={enabledFunctionalSkills}
           designTemplates={designTemplates}
           designSystems={designSystems}
+          raizBridge={raizBridge}
+          raizEmbedded={raizBridge.embedded}
           daemonLive={daemonLive}
           onModeChange={handleModeChange}
           onAgentChange={handleAgentChange}
@@ -915,9 +936,10 @@ export function App() {
           projects={projects}
           templates={templates}
           promptTemplates={promptTemplates}
-          defaultDesignSystemId={config.designSystemId}
-          config={config}
+          defaultDesignSystemId={defaultDesignSystemId}
+          config={effectiveConfig}
           agents={agents}
+          raizEmbedded={raizBridge.embedded}
           skillsLoading={skillsLoading}
           designSystemsLoading={dsLoading}
           projectsLoading={projectsLoading}
@@ -937,7 +959,7 @@ export function App() {
         />
       )}
       <PetOverlay
-        pet={config.pet?.enabled ? config.pet : undefined}
+        pet={!raizBridge.embedded && effectiveConfig.pet?.enabled ? effectiveConfig.pet : undefined}
         onTuck={handleTuckPet}
         onOpenSettings={openPetSettings}
       />

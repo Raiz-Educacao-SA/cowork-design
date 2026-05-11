@@ -25,6 +25,7 @@ import {
   fetchDesignSystem,
   fetchDesignTemplate,
   fetchLiveArtifacts,
+  fetchProjectFileText,
   fetchProjectFiles,
   fetchSkill,
   patchPreviewCommentStatus,
@@ -103,6 +104,11 @@ import { useProjectDetail } from '../hooks/useProjectDetail';
 import { useTerminalLaunch } from '../hooks/useTerminalLaunch';
 import { buildClipboardPrompt } from '../lib/build-clipboard-prompt';
 import { copyToClipboard } from '../lib/copy-to-clipboard';
+import type {
+  RaizArtifactPublishInput,
+  RaizArtifactPublishResult,
+  RaizBridgeContext,
+} from '../integrations/raiz/bridge';
 import { effectiveMaxTokens } from '../state/maxTokens';
 
 interface Props {
@@ -142,6 +148,11 @@ interface Props {
   onTouchProject: () => void;
   onProjectChange: (next: Project) => void;
   onProjectsRefresh: () => void;
+  raizBridge?: {
+    context: RaizBridgeContext | null;
+    publishArtifact: (input: RaizArtifactPublishInput) => Promise<RaizArtifactPublishResult>;
+  };
+  raizEmbedded?: boolean;
 }
 
 let liveArtifactEventSequence = 0;
@@ -262,6 +273,8 @@ export function ProjectView({
   onTouchProject,
   onProjectChange,
   onProjectsRefresh,
+  raizBridge,
+  raizEmbedded = false,
 }: Props) {
   const t = useT();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -2146,10 +2159,46 @@ export function ProjectView({
       baseUrl: config.baseUrl,
       model: config.model,
       maxTokens: effectiveMaxTokens(config),
-    }).then((result) => {
-      if (result) void designMdState.refresh();
+    }).then(async (result) => {
+      if (!result) return;
+
+      await designMdState.refresh();
+
+      if (!raizBridge?.context?.workspaceId || !raizBridge.context.capabilities.artifactsWrite) {
+        return;
+      }
+
+      const designMd = await fetchProjectFileText(project.id, 'DESIGN.md', {
+        cache: 'no-store',
+        cacheBustKey: Date.now(),
+      });
+      if (!designMd?.trim()) return;
+
+      const publishResult = await raizBridge.publishArtifact({
+        name: `${project.name} - DESIGN.md`,
+        description: 'Pacote de design finalizado no Cowork Design',
+        content: designMd,
+        contentType: 'markdown',
+        filename: 'DESIGN.md',
+        tags: ['design-package'],
+        externalId: `open-design:${project.id}:DESIGN.md`,
+        metadata: {
+          projectId: project.id,
+          projectName: project.name,
+          designSystemId: config.designSystemId,
+          sourceEvent: 'finalize',
+        },
+      });
+
+      setProjectActionsToast({
+        message: publishResult.ok
+          ? 'DESIGN.md salvo no Raiz'
+          : 'Nao foi possivel salvar o DESIGN.md no Raiz',
+        details: publishResult.ok ? null : (publishResult.error ?? null),
+        code: publishResult.ok ? null : `RAIZ_ARTIFACT_${publishResult.status}`,
+      });
     });
-  }, [finalize, config, designMdState]);
+  }, [config, designMdState, finalize, project.id, project.name, raizBridge]);
 
   const handleCancelFinalize = useCallback(() => {
     finalize.cancel();
@@ -2247,45 +2296,47 @@ export function ProjectView({
   }, [designMdState.exists, handleContinueInCli]);
 
   return (
-    <div className="app">
-      <AppChromeHeader
-        onBack={onBack}
-        backLabel={t('project.backToProjects')}
-        actions={(
-          <AvatarMenu
-            config={config}
-            agents={agents}
-            daemonLive={daemonLive}
-            onModeChange={onModeChange}
-            onAgentChange={onAgentChange}
-            onAgentModelChange={onAgentModelChange}
-            onOpenSettings={onOpenSettings}
-            onRefreshAgents={onRefreshAgents}
-            onBack={onBack}
-          />
-        )}
-      >
-        <div className="app-project-title">
-            <span
-              className="title editable"
-              data-testid="project-title"
-              tabIndex={0}
-              role="textbox"
-              suppressContentEditableWarning
-              contentEditable
-              onBlur={(e) => handleProjectRename(e.currentTarget.textContent ?? '')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  (e.currentTarget as HTMLElement).blur();
-                }
-              }}
-            >
-              {project.name}
-            </span>
-            <span className="meta" data-testid="project-meta">{projectMeta}</span>
-        </div>
-      </AppChromeHeader>
+    <div className={`app${raizEmbedded ? ' raiz-embedded-shell' : ''}`}>
+      {raizEmbedded ? null : (
+        <AppChromeHeader
+          onBack={onBack}
+          backLabel={t('project.backToProjects')}
+          actions={(
+            <AvatarMenu
+              config={config}
+              agents={agents}
+              daemonLive={daemonLive}
+              onModeChange={onModeChange}
+              onAgentChange={onAgentChange}
+              onAgentModelChange={onAgentModelChange}
+              onOpenSettings={onOpenSettings}
+              onRefreshAgents={onRefreshAgents}
+              onBack={onBack}
+            />
+          )}
+        >
+          <div className="app-project-title">
+              <span
+                className="title editable"
+                data-testid="project-title"
+                tabIndex={0}
+                role="textbox"
+                suppressContentEditableWarning
+                contentEditable
+                onBlur={(e) => handleProjectRename(e.currentTarget.textContent ?? '')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLElement).blur();
+                  }
+                }}
+              >
+                {project.name}
+              </span>
+              <span className="meta" data-testid="project-meta">{projectMeta}</span>
+          </div>
+        </AppChromeHeader>
+      )}
       <ProjectActionsToolbar
         designMdState={designMdState}
         finalizeStatus={finalize.status}

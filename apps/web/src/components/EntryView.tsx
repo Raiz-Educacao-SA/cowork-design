@@ -75,6 +75,7 @@ interface Props {
   onAdoptPet: () => void;
   onAdoptPetInline: (petId: string) => void;
   onTogglePet: () => void;
+  raizEmbedded?: boolean;
 }
 
 const SIDEBAR_MIN = 320;
@@ -247,6 +248,7 @@ export function EntryView({
   onAdoptPet,
   onAdoptPetInline,
   onTogglePet,
+  raizEmbedded = false,
 }: Props) {
   const t = useT();
   const [topTab, setTopTab] = useState<TopTab>('designs');
@@ -468,8 +470,8 @@ export function EntryView({
   );
 
   return (
-    <div className="entry-shell">
-      <AppChromeHeader actions={avatarMenu} />
+    <div className={`entry-shell${raizEmbedded ? ' raiz-embedded-shell' : ''}`}>
+      {raizEmbedded ? null : <AppChromeHeader actions={avatarMenu} />}
       <div
         className={`entry${petRailHidden ? '' : ' has-pet-rail'}`}
         style={{

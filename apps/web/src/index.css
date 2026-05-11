@@ -16837,3 +16837,26 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 .routines-status-succeeded { background: #e3efe6; color: #2e7d5b; }
 .routines-status-failed { background: #f6dfdc; color: #b3382b; }
 .routines-status-canceled { background: #ece9e2; color: var(--text-muted); }
+
+/* Raiz embedded mode keeps Open Design focused inside the Raiz Cowork shell. */
+.raiz-embedded body {
+  background: var(--bg-panel);
+}
+
+.raiz-embedded .raiz-embedded-shell {
+  height: 100vh;
+  min-height: 100vh;
+}
+
+.raiz-embedded .entry-shell,
+.raiz-embedded .app {
+  background: var(--bg-panel);
+}
+
+.raiz-embedded .entry {
+  height: 100vh;
+}
+
+.raiz-embedded .project-actions-toolbar {
+  border-top: 0;
+}
