@@ -121,10 +121,9 @@
       else if (e.key === 'Home') { e.preventDefault(); go(0); }
       else if (e.key === 'End') { e.preventDefault(); go(slides.length - 1); }
     }
-    // Listen on both window and document in capture phase so the handler
-    // fires regardless of which element holds focus inside the iframe.
+    // Use a single capture-phase keydown listener so each keypress advances
+    // exactly one slide, while still catching focused elements in the iframe.
     window.addEventListener('keydown', onKey, true);
-    document.addEventListener('keydown', onKey, true);
     // And listen for scroll on both surfaces — same reason.
     document.addEventListener('scroll', syncFromScroll, { passive: true, capture: true });
     window.addEventListener('scroll', syncFromScroll, { passive: true });

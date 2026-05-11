@@ -41,3 +41,13 @@ open https://github.com/zarazhangrui/frontend-slides
 
 Then ask the agent to invoke this skill by name (`frontend-slides`) or with
 one of the trigger phrases listed in this skill's frontmatter.
+
+## Deck runtime constraints
+
+- Register keyboard slide navigation only once, preferably with
+  `window.addEventListener('keydown', onKey, true)`.
+- Do not register the same `keydown` handler on both `window` and
+  `document`; a single arrow key can bubble through both targets and advance
+  two slides.
+- Keep click navigation and keyboard navigation behavior equivalent: one
+  "next" action advances exactly one slide.

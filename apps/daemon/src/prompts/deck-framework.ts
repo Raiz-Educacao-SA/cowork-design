@@ -277,11 +277,10 @@ export const DECK_SKELETON_HTML = `<!doctype html>
         else if (e.key === 'Home') { e.preventDefault(); go(0); }
         else if (e.key === 'End') { e.preventDefault(); go(slides.length - 1); }
       }
-      // Capture phase + listen on both targets — inside the OD iframe,
-      // focus may be on window OR document; a single non-capture listener
-      // silently misses presses.
+      // Capture phase on window catches iframe keypresses without double
+      // firing. Registering this same handler on document also advances two
+      // slides per keypress as the event bubbles.
       window.addEventListener('keydown', onKey, true);
-      document.addEventListener('keydown', onKey, true);
       if (prev) prev.addEventListener('click', function () { go(idx - 1); });
       if (next) next.addEventListener('click', function () { go(idx + 1); });
 
@@ -346,7 +345,7 @@ These are the failure patterns we just spent days debugging. Each one looks "equ
 
 - ❌ Don't write your own \`fit()\` function or \`transform: scale()\` script. The framework already does it, and ad-hoc versions drift inside the OD viewer's nested transform wrapper.
 - ❌ Don't use \`transform-origin: center center\` on the stage. The framework uses \`top left\` plus an explicit translate so scaled content lands at the same place every render.
-- ❌ Don't use \`document.addEventListener('keydown', …)\` alone. Inside an iframe, focus is sometimes on window. The framework adds capture-phase listeners on **both** targets — replacing this with a single listener silently swallows arrow keys.
+- ❌ Don't register the same \`keydown\` handler on both \`window\` and \`document\`. A single keypress can bubble through both targets and advance two slides. The framework uses one capture-phase \`window\` listener.
 - ❌ Don't replace the localStorage key, the slide-visibility toggle (\`.slide.active\`), or the counter element IDs (\`#deck-cur\`, \`#deck-total\`, \`#deck-prev\`, \`#deck-next\`). The framework reads them by ID.
 - ❌ Don't put the prev/next buttons or the counter **inside** \`.deck-stage\`. They must live outside the scaled element so they stay legible at any viewport size.
 - ❌ Don't redefine \`.slide { display: ... }\` in your per-deck styles. The framework uses \`display: none\` / \`display: flex\` to toggle slides; overriding it breaks navigation.
@@ -354,7 +353,7 @@ These are the failure patterns we just spent days debugging. Each one looks "equ
 
 ## Why this matters (so you can judge edge cases)
 
-The framework is a contract with the host viewer. The OD iframe sits inside a transformed wrapper (the zoom control); the keyboard handler needs capture phase + dual targets; "Share → PDF" reads the print stylesheet; the position survives reloads via localStorage. If a turn rewrites any of these — even with "equivalent" code — the next turn diverges, and three turns in the deck has subtly broken nav and a one-page PDF. Treat the framework as load-bearing infrastructure.
+The framework is a contract with the host viewer. The OD iframe sits inside a transformed wrapper (the zoom control); the keyboard handler needs a single capture-phase window listener; "Share → PDF" reads the print stylesheet; the position survives reloads via localStorage. If a turn rewrites any of these — even with "equivalent" code — the next turn diverges, and three turns in the deck has subtly broken nav and a one-page PDF. Treat the framework as load-bearing infrastructure.
 
 If the user asks for something the framework genuinely doesn't support (vertical decks, custom slide transitions, multi-column simultaneous slides), say so and ask before forking. **Default answer: keep the framework, change the slide content.**
 

@@ -284,7 +284,7 @@
 
       1. Detect the real scroller — body OR documentElement, depending.
       2. Listen for scroll on BOTH window and document, capture phase.
-      3. Listen for keydown on BOTH window and document, capture phase.
+      3. Listen for keydown once on window, capture phase.
       4. Auto-focus body so arrow keys work without an upfront click.
       5. Never use Element.scrollIntoView — it can yank the host page.
     */
@@ -323,9 +323,9 @@
         else if (e.key === 'End')                                                         { e.preventDefault(); go(slides.length - 1); }
       }
 
-      // listen on both surfaces, capture phase
+      // Use a single capture-phase keydown listener. Registering the same
+      // handler on both window and document advances two slides per keypress.
       window.addEventListener('keydown', onKey, true);
-      document.addEventListener('keydown', onKey, true);
       document.addEventListener('scroll', syncFromScroll, { passive: true, capture: true });
       window.addEventListener('scroll', syncFromScroll,   { passive: true });
 
