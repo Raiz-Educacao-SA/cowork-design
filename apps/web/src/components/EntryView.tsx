@@ -25,7 +25,7 @@ import { AppChromeHeader } from './AppChromeHeader';
 import { Icon } from './Icon';
 import { LanguageMenu } from './LanguageMenu';
 import { CenteredLoader } from './Loading';
-import { NewProjectPanel, type CreateInput } from './NewProjectPanel';
+import { NewProjectPanel, type CreateInput, type CreateTab } from './NewProjectPanel';
 import {
   fetchConnectors,
   fetchConnectorStatuses,
@@ -76,6 +76,7 @@ interface Props {
   onAdoptPetInline: (petId: string) => void;
   onTogglePet: () => void;
   raizEmbedded?: boolean;
+  raizAllowedCreateTabs?: CreateTab[];
 }
 
 const SIDEBAR_MIN = 320;
@@ -249,9 +250,20 @@ export function EntryView({
   onAdoptPetInline,
   onTogglePet,
   raizEmbedded = false,
+  raizAllowedCreateTabs,
 }: Props) {
   const t = useT();
   const [topTab, setTopTab] = useState<TopTab>('designs');
+  const visibleTopTabs = useMemo<TopTab[]>(() => {
+    const tabs: TopTab[] = ['designs', 'templates', 'design-systems'];
+    if (!raizAllowedCreateTabs || raizAllowedCreateTabs.includes('image')) {
+      tabs.push('image-templates');
+    }
+    if (!raizAllowedCreateTabs || raizAllowedCreateTabs.includes('video')) {
+      tabs.push('video-templates');
+    }
+    return tabs;
+  }, [raizAllowedCreateTabs]);
   const [previewSystemId, setPreviewSystemId] = useState<string | null>(null);
   const [previewPromptTemplate, setPreviewPromptTemplate] =
     useState<PromptTemplateSummary | null>(null);
@@ -318,6 +330,11 @@ export function EntryView({
 
   const startWidthRef = useRef(0);
   const startXRef = useRef(0);
+
+  useEffect(() => {
+    if (visibleTopTabs.includes(topTab)) return;
+    setTopTab('designs');
+  }, [topTab, visibleTopTabs]);
 
   useEffect(() => {
     if (!resizing) return;
@@ -495,6 +512,7 @@ export function EntryView({
           connectors={connectors}
           connectorsLoading={connectorsLoading}
           onOpenConnectorsTab={() => onOpenSettings('composio')}
+          allowedTabs={raizAllowedCreateTabs}
           loading={skillsLoading || designSystemsLoading}
         />
         <div className="entry-side-foot">
@@ -570,26 +588,25 @@ export function EntryView({
       <main className="entry-main">
         <div className="entry-header">
           <div className="entry-tabs" role="tablist">
-            <TopTabButton current={topTab} value="designs" label={t('entry.tabDesigns')} onClick={setTopTab} />
-            <TopTabButton current={topTab} value="templates" label={t('entry.tabTemplates')} onClick={setTopTab} />
-            <TopTabButton
-              current={topTab}
-              value="design-systems"
-              label={t('entry.tabDesignSystems')}
-              onClick={setTopTab}
-            />
-            <TopTabButton
-              current={topTab}
-              value="image-templates"
-              label={t('entry.tabImageTemplates')}
-              onClick={setTopTab}
-            />
-            <TopTabButton
-              current={topTab}
-              value="video-templates"
-              label={t('entry.tabVideoTemplates')}
-              onClick={setTopTab}
-            />
+            {visibleTopTabs.map((entry) => (
+              <TopTabButton
+                key={entry}
+                current={topTab}
+                value={entry}
+                label={
+                  entry === 'designs'
+                    ? t('entry.tabDesigns')
+                    : entry === 'templates'
+                      ? t('entry.tabTemplates')
+                      : entry === 'design-systems'
+                        ? t('entry.tabDesignSystems')
+                        : entry === 'image-templates'
+                          ? t('entry.tabImageTemplates')
+                          : t('entry.tabVideoTemplates')
+                }
+                onClick={setTopTab}
+              />
+            ))}
           </div>
         </div>
         <div className="entry-tab-content">

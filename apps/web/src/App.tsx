@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { EntryView } from './components/EntryView';
-import type { CreateInput } from './components/NewProjectPanel';
+import type { CreateInput, CreateTab } from './components/NewProjectPanel';
 import { MemoryToast } from './components/MemoryToast';
 import { PetOverlay } from './components/pet/PetOverlay';
 import { migrateCustomPetAtlas } from './components/pet/pets';
@@ -226,7 +226,10 @@ export function App() {
   const activeProjectId = route.kind === 'project' ? route.projectId : null;
   const activeFileName = route.kind === 'project' ? route.fileName : null;
   const showPrivacyConsent =
-    daemonConfigLoaded && config.privacyDecisionAt == null && !settingsOpen;
+    !raizBridge.embedded
+    && daemonConfigLoaded
+    && config.privacyDecisionAt == null
+    && !settingsOpen;
   useEffect(() => {
     const body = activeProjectId
       ? { projectId: activeProjectId, fileName: activeFileName }
@@ -897,6 +900,20 @@ export function App() {
     }
     return effectiveConfig.designSystemId;
   }, [effectiveConfig.designSystemId, enabledDS, raizBridge.context?.designSystem?.id]);
+  const raizAllowedCreateTabs = useMemo<CreateTab[] | undefined>(() => {
+    const media = raizBridge.context?.capabilities.media;
+    if (!media || media.length === 0) return undefined;
+
+    const tabs: CreateTab[] = ['prototype', 'live-artifact', 'deck', 'template', 'other'];
+    if (media.includes('image')) tabs.push('image');
+    if (media.includes('video') && raizBridge.context?.capabilities.audioVideoEnabled) {
+      tabs.push('video');
+    }
+    if (media.includes('audio') && raizBridge.context?.capabilities.audioVideoEnabled) {
+      tabs.push('audio');
+    }
+    return tabs;
+  }, [raizBridge.context?.capabilities.audioVideoEnabled, raizBridge.context?.capabilities.media]);
 
   return (
     <>
@@ -940,6 +957,7 @@ export function App() {
           config={effectiveConfig}
           agents={agents}
           raizEmbedded={raizBridge.embedded}
+          raizAllowedCreateTabs={raizAllowedCreateTabs}
           skillsLoading={skillsLoading}
           designSystemsLoading={dsLoading}
           projectsLoading={projectsLoading}

@@ -111,6 +111,7 @@ interface Props {
   connectors?: ConnectorDetail[];
   connectorsLoading?: boolean;
   onOpenConnectorsTab?: () => void;
+  allowedTabs?: CreateTab[];
   loading?: boolean;
 }
 
@@ -161,6 +162,7 @@ export function NewProjectPanel({
   connectors,
   connectorsLoading = false,
   onOpenConnectorsTab,
+  allowedTabs,
   loading = false,
 }: Props) {
   const t = useT();
@@ -221,6 +223,13 @@ export function NewProjectPanel({
     useState<PromptTemplatePick | null>(null);
   const [videoPromptTemplate, setVideoPromptTemplate] =
     useState<PromptTemplatePick | null>(null);
+  const visibleTabs = useMemo(
+    () =>
+      (Object.keys(TAB_LABEL_KEYS) as CreateTab[]).filter(
+        (entry) => !allowedTabs || allowedTabs.includes(entry),
+      ),
+    [allowedTabs],
+  );
 
   // Design system is meaningful only for the structured/visual surfaces
   // (prototype, deck, template, and the freeform "other" canvas). The
@@ -260,6 +269,11 @@ export function NewProjectPanel({
   }, [tab, skills]);
   const showDesignSystemPicker =
     tabSupportsDesignSystem && !tabDefaultSkillForcesNoDs;
+
+  useEffect(() => {
+    if (visibleTabs.includes(tab)) return;
+    setTab(visibleTabs[0] ?? 'prototype');
+  }, [tab, visibleTabs]);
 
   useEffect(() => {
     if (dsSelectionTouched) return;
@@ -554,7 +568,7 @@ export function NewProjectPanel({
           <Icon name="chevron-left" size={16} strokeWidth={2} />
         </button>
         <div className="newproj-tabs" role="tablist" ref={tabsRef}>
-          {(Object.keys(TAB_LABEL_KEYS) as CreateTab[]).map((entry) => (
+          {visibleTabs.map((entry) => (
             <button
               key={entry}
               role="tab"

@@ -8,6 +8,7 @@ export const RAIZ_READY_MESSAGE_TYPE = 'raiz:cowork-design:ready';
 export const RAIZ_SESSION_STORAGE_KEY = 'raiz:cowork-design:session';
 
 type ManagedSetting = 'locale' | 'theme' | 'accentColor' | 'designSystemId';
+export type RaizMediaCapability = 'text' | 'image' | 'video' | 'audio';
 
 export interface RaizBridgeSession {
   token: string;
@@ -34,6 +35,11 @@ export interface RaizBridgeContext {
   capabilities: {
     artifactsWrite: boolean;
     managedSettings: ManagedSetting[];
+    media: RaizMediaCapability[];
+    audioVideoEnabled: boolean;
+    budgetScope?: 'organization' | 'workspace' | 'user';
+    managedProvider?: boolean;
+    keyRotationRole?: 'super-admin' | 'admin';
   };
   designSystem?: {
     id: string;
@@ -115,6 +121,20 @@ function asManagedSettings(value: unknown): ManagedSetting[] {
   );
 }
 
+function asMediaCapabilities(value: unknown): RaizMediaCapability[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is RaizMediaCapability =>
+      item === 'text' || item === 'image' || item === 'video' || item === 'audio'
+  );
+}
+
+function asBudgetScope(value: unknown): RaizBridgeContext['capabilities']['budgetScope'] {
+  return value === 'organization' || value === 'workspace' || value === 'user'
+    ? value
+    : undefined;
+}
+
 function parseWorkspace(value: unknown): RaizBridgeContext['workspace'] {
   const raw = asObject(value);
   const id = asString(raw?.id);
@@ -174,6 +194,14 @@ export function parseRaizBridgeMessage(
     capabilities: {
       artifactsWrite: capabilities?.artifactsWrite === true,
       managedSettings: asManagedSettings(capabilities?.managedSettings),
+      media: asMediaCapabilities(capabilities?.media),
+      audioVideoEnabled: capabilities?.audioVideoEnabled === true,
+      budgetScope: asBudgetScope(capabilities?.budgetScope),
+      managedProvider: capabilities?.managedProvider === true,
+      keyRotationRole:
+        capabilities?.keyRotationRole === 'super-admin' || capabilities?.keyRotationRole === 'admin'
+          ? capabilities.keyRotationRole
+          : undefined,
     },
     designSystem: parseDesignSystem(raw.designSystem),
   };
