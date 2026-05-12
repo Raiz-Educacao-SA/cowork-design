@@ -47,7 +47,7 @@ import {
   listTemplates,
   patchProject,
 } from './state/projects';
-import { useI18n } from './i18n';
+import { LOCALES, useI18n, type Locale } from './i18n';
 import { liveArtifactTabId } from './types';
 import type {
   AgentInfo,
@@ -149,6 +149,13 @@ export function App() {
     () => applyRaizContextToConfig(config, raizBridge.context),
     [config, raizBridge.context],
   );
+  useEffect(() => {
+    if (!raizBridge.embedded || typeof window === 'undefined') return;
+    const locale = new URLSearchParams(window.location.search).get('locale');
+    if (locale && (LOCALES as readonly string[]).includes(locale)) {
+      setLocale(locale as Locale);
+    }
+  }, [raizBridge.embedded, setLocale]);
   const configRef = useRef(config);
   configRef.current = config;
   const latestPersistedConfigRef = useRef(config);
@@ -902,7 +909,11 @@ export function App() {
   }, [effectiveConfig.designSystemId, enabledDS, raizBridge.context?.designSystem?.id]);
   const raizAllowedCreateTabs = useMemo<CreateTab[] | undefined>(() => {
     const media = raizBridge.context?.capabilities.media;
-    if (!media || media.length === 0) return undefined;
+    if (!media || media.length === 0) {
+      return raizBridge.embedded
+        ? ['prototype', 'live-artifact', 'deck', 'template', 'image', 'other']
+        : undefined;
+    }
 
     const tabs: CreateTab[] = ['prototype', 'live-artifact', 'deck', 'template', 'other'];
     if (media.includes('image')) tabs.push('image');
@@ -913,7 +924,11 @@ export function App() {
       tabs.push('audio');
     }
     return tabs;
-  }, [raizBridge.context?.capabilities.audioVideoEnabled, raizBridge.context?.capabilities.media]);
+  }, [
+    raizBridge.context?.capabilities.audioVideoEnabled,
+    raizBridge.context?.capabilities.media,
+    raizBridge.embedded,
+  ]);
 
   return (
     <>

@@ -490,9 +490,9 @@ export function EntryView({
     <div className={`entry-shell${raizEmbedded ? ' raiz-embedded-shell' : ''}`}>
       {raizEmbedded ? null : <AppChromeHeader actions={avatarMenu} />}
       <div
-        className={`entry${petRailHidden ? '' : ' has-pet-rail'}`}
+        className={`entry${!raizEmbedded && !petRailHidden ? ' has-pet-rail' : ''}`}
         style={{
-          gridTemplateColumns: petRailHidden
+          gridTemplateColumns: raizEmbedded || petRailHidden
             ? `${sidebarWidth}px 1fr`
             : `${sidebarWidth}px 1fr auto`,
         }}
@@ -515,64 +515,67 @@ export function EntryView({
           allowedTabs={raizAllowedCreateTabs}
           loading={skillsLoading || designSystemsLoading}
         />
-        <div className="entry-side-foot">
-          <div className="entry-side-foot-row">
+        {raizEmbedded ? null : (
+          <div className="entry-side-foot">
+            <div className="entry-side-foot-row">
+              <button
+                type="button"
+                className={`foot-pill pet-pill${config.pet?.adopted ? '' : ' pet-pill-fresh'}`}
+                onClick={onAdoptPet}
+                title={config.pet?.adopted ? t('pet.changePet') : t('pet.adoptCallout')}
+              >
+                <span className="pet-pill-glyph" aria-hidden>
+                  {config.pet?.adopted
+                    ? config.pet.petId === 'custom'
+                      ? config.pet.custom.glyph || '🦄'
+                      : '🐾'
+                    : '🐾'}
+                </span>
+                <span className="foot-pill-pet-label">
+                  {config.pet?.adopted ? t('pet.changePet') : t('pet.adoptCallout')}
+                </span>
+                {!config.pet?.adopted ? <span className="pet-pill-dot" aria-hidden /> : null}
+              </button>
+              <a
+                className="foot-pill foot-pill-follow"
+                href="https://x.com/nexudotio"
+                target="_blank"
+                rel="noreferrer noopener"
+                title="Follow @nexudotio on X for releases and milestones"
+                aria-label="Follow @nexudotio on X"
+              >
+                <Icon name="external-link" size={12} />
+                <span className="foot-pill-follow-label">Follow @nexudotio</span>
+              </a>
+            </div>
             <button
               type="button"
-              className={`foot-pill pet-pill${config.pet?.adopted ? '' : ' pet-pill-fresh'}`}
-              onClick={onAdoptPet}
-              title={
-                config.pet?.adopted
-                  ? t('pet.changePet')
-                  : t('pet.adoptCallout')
-              }
+              className="foot-pill"
+              onClick={() => onOpenSettings()}
+              aria-label={t('settings.envConfigure')}
+              title={t('settings.envConfigure')}
             >
-              <span className="pet-pill-glyph" aria-hidden>
-                {config.pet?.adopted
-                  ? config.pet.petId === 'custom'
-                    ? config.pet.custom.glyph || '🦄'
-                    : '🐾'
-                  : '🐾'}
+              <Icon name="settings" size={12} />
+              <span>
+                {config.mode === 'daemon'
+                  ? t('settings.localCli')
+                  : apiProtocolLabel(config.apiProtocol)}
               </span>
-              <span className="foot-pill-pet-label">
-                {config.pet?.adopted
-                  ? t('pet.changePet')
-                  : t('pet.adoptCallout')}
+              <span style={{ color: 'var(--text-faint)' }}>·</span>
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: 180,
+                }}
+              >
+                {envMetaLine}
               </span>
-              {!config.pet?.adopted ? <span className="pet-pill-dot" aria-hidden /> : null}
             </button>
-            <a
-              className="foot-pill foot-pill-follow"
-              href="https://x.com/nexudotio"
-              target="_blank"
-              rel="noreferrer noopener"
-              title="Follow @nexudotio on X for releases and milestones"
-              aria-label="Follow @nexudotio on X"
-            >
-              <Icon name="external-link" size={12} />
-              <span className="foot-pill-follow-label">Follow @nexudotio</span>
-            </a>
+            <LanguageMenu />
           </div>
-          <button
-            type="button"
-            className="foot-pill"
-            onClick={() => onOpenSettings()}
-            aria-label={t('settings.envConfigure')}
-            title={t('settings.envConfigure')}
-          >
-            <Icon name="settings" size={12} />
-            <span>
-              {config.mode === 'daemon'
-                ? t('settings.localCli')
-                : apiProtocolLabel(config.apiProtocol)}
-            </span>
-            <span style={{ color: 'var(--text-faint)' }}>·</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
-              {envMetaLine}
-            </span>
-          </button>
-          <LanguageMenu />
-        </div>
+        )}
         <button
           type="button"
           aria-label={t('entry.resizeAria')}
