@@ -82,8 +82,12 @@ export function allowedRaizOrigins(): Set<string> {
     ...readCsvEnv(process.env.NEXT_PUBLIC_RAIZ_PLATFORM_ORIGIN),
     ...readCsvEnv(process.env.NEXT_PUBLIC_RAIZ_PLATFORM_ORIGINS),
   ];
+  const developmentOrigins =
+    process.env.NODE_ENV === 'production'
+      ? []
+      : ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
-  return new Set(['http://localhost:3000', 'http://127.0.0.1:3000', ...configured]);
+  return new Set([...developmentOrigins, ...configured]);
 }
 
 export function isAllowedRaizOrigin(origin: string): boolean {
@@ -94,6 +98,19 @@ export function isRaizEmbeddedMode(search?: string): boolean {
   if (typeof window === 'undefined' && search == null) return false;
   const params = new URLSearchParams(search ?? window.location.search);
   return params.get('embed') === 'raiz';
+}
+
+function getRaizParentTargetOrigin(): string | null {
+  if (typeof document !== 'undefined' && document.referrer) {
+    try {
+      const referrerOrigin = new URL(document.referrer).origin;
+      if (isAllowedRaizOrigin(referrerOrigin)) return referrerOrigin;
+    } catch {
+      /* Ignore malformed referrers and skip ready postMessage. */
+    }
+  }
+
+  return null;
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -295,7 +312,10 @@ export function useRaizBridge(options: UseRaizBridgeOptions = {}) {
     document.documentElement.classList.toggle('raiz-embedded', nextEmbedded);
 
     if (nextEmbedded && window.parent && window.parent !== window) {
-      window.parent.postMessage({ type: RAIZ_READY_MESSAGE_TYPE, version: 1 }, '*');
+      const parentOrigin = getRaizParentTargetOrigin();
+      if (parentOrigin) {
+        window.parent.postMessage({ type: RAIZ_READY_MESSAGE_TYPE, version: 1 }, parentOrigin);
+      }
     }
   }, []);
 
