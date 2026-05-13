@@ -677,7 +677,7 @@ export function EntryView({
           ) : null}
         </div>
       </main>
-      {petRailHidden ? null : (
+      {raizEmbedded || petRailHidden ? null : (
         <PetRail
           config={config}
           onAdoptInline={onAdoptPetInline}
