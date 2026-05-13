@@ -5,6 +5,7 @@ import type { AppConfig, AppTheme } from '../../types';
 
 export const RAIZ_BRIDGE_MESSAGE_TYPE = 'raiz:cowork-design:session';
 export const RAIZ_READY_MESSAGE_TYPE = 'raiz:cowork-design:ready';
+export const RAIZ_SESSION_ACK_MESSAGE_TYPE = 'raiz:cowork-design:session-ack';
 export const RAIZ_SESSION_STORAGE_KEY = 'raiz:cowork-design:session';
 
 type ManagedSetting = 'locale' | 'theme' | 'accentColor' | 'designSystemId';
@@ -83,9 +84,7 @@ export function allowedRaizOrigins(): Set<string> {
     ...readCsvEnv(process.env.NEXT_PUBLIC_RAIZ_PLATFORM_ORIGINS),
   ];
   const developmentOrigins =
-    process.env.NODE_ENV === 'production'
-      ? []
-      : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+    process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
   return new Set([...developmentOrigins, ...configured]);
 }
@@ -100,7 +99,22 @@ export function isRaizEmbeddedMode(search?: string): boolean {
   return params.get('embed') === 'raiz';
 }
 
-function getRaizParentTargetOrigin(): string | null {
+function getAllowedRaizOriginFromSearch(search?: string): string | null {
+  if (typeof window === 'undefined' && search == null) return null;
+
+  const params = new URLSearchParams(search ?? window.location.search);
+  const rawOrigin = params.get('raizOrigin');
+  if (!rawOrigin) return null;
+
+  try {
+    const origin = new URL(rawOrigin).origin;
+    return isAllowedRaizOrigin(origin) ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getRaizParentTargetOrigin(search?: string): string | null {
   if (typeof document !== 'undefined' && document.referrer) {
     try {
       const referrerOrigin = new URL(document.referrer).origin;
@@ -110,7 +124,7 @@ function getRaizParentTargetOrigin(): string | null {
     }
   }
 
-  return null;
+  return getAllowedRaizOriginFromSearch(search);
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -147,9 +161,7 @@ function asMediaCapabilities(value: unknown): RaizMediaCapability[] {
 }
 
 function asBudgetScope(value: unknown): RaizBridgeContext['capabilities']['budgetScope'] {
-  return value === 'organization' || value === 'workspace' || value === 'user'
-    ? value
-    : undefined;
+  return value === 'organization' || value === 'workspace' || value === 'user' ? value : undefined;
 }
 
 function parseWorkspace(value: unknown): RaizBridgeContext['workspace'] {
@@ -240,6 +252,14 @@ export function persistRaizSession(context: RaizBridgeContext): void {
   }
 }
 
+export function buildRaizSessionAckMessage(context: RaizBridgeContext) {
+  return {
+    type: RAIZ_SESSION_ACK_MESSAGE_TYPE,
+    version: 1,
+    expiresAt: context.session.expiresAt,
+  };
+}
+
 export function applyRaizContextToConfig(
   config: AppConfig,
   context: RaizBridgeContext | null
@@ -328,6 +348,10 @@ export function useRaizBridge(options: UseRaizBridgeOptions = {}) {
       persistRaizSession(parsed);
       setContext(parsed);
       onContext?.(parsed);
+
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(buildRaizSessionAckMessage(parsed), parsed.sourceOrigin);
+      }
     };
 
     window.addEventListener('message', handleMessage);
