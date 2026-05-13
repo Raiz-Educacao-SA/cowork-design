@@ -67,9 +67,51 @@ function createOriginMiddleware(resolvedPort: number, host = '127.0.0.1') {
   };
 }
 
+function createLocalNetworkAccessMiddleware(resolvedPort: number, host = '127.0.0.1') {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
+    if (origin == null || origin === '' || origin === 'null' || !resolvedPort) {
+      return next();
+    }
+
+    const ports = allowedBrowserPorts(resolvedPort);
+    const extraAllowedOrigins = configuredAllowedOrigins();
+    const allowed = isAllowedBrowserOrigin(
+      origin,
+      req.headers.host,
+      ports,
+      host,
+      extraAllowedOrigins
+    );
+
+    if (allowed) {
+      res.header('Access-Control-Allow-Origin', new URL(String(origin)).origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Private-Network', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.header(
+        'Access-Control-Allow-Headers',
+        'Authorization, Content-Type, X-Raiz-User-Id, X-Raiz-Proxy, X-Requested-With'
+      );
+    }
+
+    if (
+      req.method === 'OPTIONS' &&
+      String(req.headers['access-control-request-private-network']).toLowerCase() === 'true'
+    ) {
+      return allowed
+        ? res.sendStatus(204)
+        : res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+    }
+
+    return next();
+  };
+}
+
 function makeTestApp(port: number, host = '127.0.0.1') {
   const app = express();
   app.use(express.json());
+  app.use(createLocalNetworkAccessMiddleware(port, host));
   app.use('/api', createOriginMiddleware(port, host));
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
   app.get('/api/projects', (_req, res) => res.json({ projects: [] }));
@@ -340,6 +382,42 @@ describe('daemon origin validation middleware', () => {
     } finally {
       delete process.env.OD_ALLOWED_ORIGINS;
     }
+  });
+
+  it('allows PNA preflight from explicitly configured deployment origins', async () => {
+    process.env.OD_ALLOWED_ORIGINS = 'https://cowork.raizeducacao.com.br';
+    try {
+      const res = await request(port, 'OPTIONS', '/api/projects', {
+        origin: 'https://cowork.raizeducacao.com.br',
+        headers: {
+          'Access-Control-Request-Private-Network': 'true',
+          'Access-Control-Request-Method': 'GET',
+        },
+      });
+
+      expect(res.status).toBe(204);
+      expect(res.headers['access-control-allow-origin']).toBe(
+        'https://cowork.raizeducacao.com.br'
+      );
+      expect(res.headers['access-control-allow-private-network']).toBe('true');
+      expect(res.headers['access-control-allow-credentials']).toBe('true');
+      expect(res.headers['access-control-allow-origin']).not.toBe('*');
+    } finally {
+      delete process.env.OD_ALLOWED_ORIGINS;
+    }
+  });
+
+  it('rejects PNA preflight from unconfigured external origins', async () => {
+    const res = await request(port, 'OPTIONS', '/api/projects', {
+      origin: 'https://evil.example.com',
+      headers: {
+        'Access-Control-Request-Private-Network': 'true',
+        'Access-Control-Request-Method': 'GET',
+      },
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.headers['access-control-allow-private-network']).toBeUndefined();
   });
 
   // --- Cross-origin rejection ---

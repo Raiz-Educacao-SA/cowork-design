@@ -2118,6 +2118,53 @@ export async function startServer({
     return /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])$/.test(origin);
   }
 
+  function isAllowedBrowserCorsOrigin(req) {
+    const origin = req.headers.origin;
+    if (origin == null || origin === '' || origin === 'null' || !resolvedPort) {
+      return false;
+    }
+
+    const ports = allowedBrowserPorts(resolvedPort);
+    if (isAllowedBrowserOrigin(origin, req.headers.host, ports, host, extraAllowedOrigins)) {
+      return true;
+    }
+
+    return req.method === 'GET' && isPortlessLoopbackOrigin(String(origin));
+  }
+
+  function setLocalNetworkAccessCorsHeaders(req, res) {
+    const origin = req.headers.origin;
+    if (!origin || !isAllowedBrowserCorsOrigin(req)) return false;
+
+    res.vary('Origin');
+    res.vary('Access-Control-Request-Private-Network');
+    res.vary('Access-Control-Request-Method');
+    res.vary('Access-Control-Request-Headers');
+    res.setHeader('Access-Control-Allow-Origin', new URL(String(origin)).origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Authorization, Content-Type, X-Raiz-User-Id, X-Raiz-Proxy, X-Requested-With',
+    );
+    res.setHeader('Access-Control-Max-Age', '600');
+    return true;
+  }
+
+  app.use((req, res, next) => {
+    const hasCorsHeaders = setLocalNetworkAccessCorsHeaders(req, res);
+    const isPrivateNetworkPreflight =
+      String(req.headers['access-control-request-private-network']).toLowerCase() === 'true';
+
+    if (req.method === 'OPTIONS' && isPrivateNetworkPreflight) {
+      if (hasCorsHeaders) return res.sendStatus(204);
+      return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+    }
+
+    next();
+  });
+
   // Routes that serve content to sandboxed iframes (Origin: null) for
   // read-only purposes.  All other /api routes reject Origin: null.
   const _NULL_ORIGIN_SAFE_GET_RE =
