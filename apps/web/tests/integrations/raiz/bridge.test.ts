@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyRaizContextToConfig,
+  buildRaizSessionAckMessage,
+  getRaizParentTargetOrigin,
   isRaizEmbeddedMode,
   parseRaizBridgeMessage,
   RAIZ_BRIDGE_MESSAGE_TYPE,
+  RAIZ_SESSION_ACK_MESSAGE_TYPE,
 } from '../../../src/integrations/raiz/bridge';
 import type { AppConfig } from '../../../src/types';
 
@@ -29,6 +32,10 @@ const baseConfig: AppConfig = {
 };
 
 describe('Raiz bridge', () => {
+  afterEach(() => {
+    delete process.env.NEXT_PUBLIC_RAIZ_PLATFORM_ORIGIN;
+  });
+
   it('detects Raiz embedded mode from search params', () => {
     expect(isRaizEmbeddedMode('?embed=raiz')).toBe(true);
     expect(isRaizEmbeddedMode('?embed=open-design')).toBe(false);
@@ -59,6 +66,24 @@ describe('Raiz bridge', () => {
     expect(context?.accentColor).toBe('#f7941d');
     expect(context?.capabilities.artifactsWrite).toBe(true);
     expect(context?.capabilities.managedSettings).toEqual(['locale', 'theme', 'accentColor']);
+  });
+
+  it('uses an allowlisted raizOrigin query param when document referrer is unavailable', () => {
+    process.env.NEXT_PUBLIC_RAIZ_PLATFORM_ORIGIN = 'https://cowork.raizeducacao.com.br';
+
+    expect(
+      getRaizParentTargetOrigin(
+        '?embed=raiz&raizOrigin=https%3A%2F%2Fcowork.raizeducacao.com.br%2Fcowork%2Fdesign'
+      )
+    ).toBe('https://cowork.raizeducacao.com.br');
+  });
+
+  it('rejects non-allowlisted raizOrigin query params', () => {
+    process.env.NEXT_PUBLIC_RAIZ_PLATFORM_ORIGIN = 'https://cowork.raizeducacao.com.br';
+
+    expect(
+      getRaizParentTargetOrigin('?embed=raiz&raizOrigin=https%3A%2F%2Fevil.example')
+    ).toBeNull();
   });
 
   it('ignores invalid payloads', () => {
@@ -94,5 +119,27 @@ describe('Raiz bridge', () => {
     expect(next.accentColor).toBe('#f7941d');
     expect(next.apiKey).toBe('');
     expect(next.designSystemId).toBeNull();
+  });
+
+  it('builds session ack messages without exposing the token', () => {
+    const context = parseRaizBridgeMessage(
+      {
+        type: RAIZ_BRIDGE_MESSAGE_TYPE,
+        version: 1,
+        token: 'jwt-token',
+        expiresAt: '2026-05-11T21:00:00.000Z',
+        locale: 'pt-BR',
+        capabilities: { artifactsWrite: false, managedSettings: [] },
+      },
+      'https://cowork.raizeducacao.com.br'
+    );
+
+    expect(context).not.toBeNull();
+    expect(buildRaizSessionAckMessage(context!)).toEqual({
+      type: RAIZ_SESSION_ACK_MESSAGE_TYPE,
+      version: 1,
+      expiresAt: '2026-05-11T21:00:00.000Z',
+    });
+    expect(JSON.stringify(buildRaizSessionAckMessage(context!))).not.toContain('jwt-token');
   });
 });
