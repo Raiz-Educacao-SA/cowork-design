@@ -71,7 +71,7 @@ interface Props {
   onOpenLiveArtifact: (projectId: string, artifactId: string) => void;
   onDeleteProject: (id: string) => void;
   onChangeDefaultDesignSystem: (id: string) => void;
-  onOpenSettings: (section?: 'execution' | 'media' | 'composio' | 'language' | 'appearance' | 'notifications' | 'pet' | 'about') => void;
+  onOpenSettings?: (section?: 'execution' | 'media' | 'composio' | 'language' | 'appearance' | 'notifications' | 'pet' | 'about') => void;
   onAdoptPet: () => void;
   onAdoptPetInline: (petId: string) => void;
   onTogglePet: () => void;
@@ -472,7 +472,7 @@ export function EntryView({
             className="avatar-item"
             onClick={() => {
               setAvatarMenuOpen(false);
-              onOpenSettings();
+              onOpenSettings?.();
             }}
           >
             <span className="avatar-item-icon" aria-hidden>
@@ -511,8 +511,9 @@ export function EntryView({
           mediaProviders={config.mediaProviders}
           connectors={connectors}
           connectorsLoading={connectorsLoading}
-          onOpenConnectorsTab={() => onOpenSettings('composio')}
+          onOpenConnectorsTab={onOpenSettings ? () => onOpenSettings('composio') : undefined}
           allowedTabs={raizAllowedCreateTabs}
+          managedProvider={raizEmbedded}
           loading={skillsLoading || designSystemsLoading}
         />
         {raizEmbedded ? null : (
@@ -551,7 +552,7 @@ export function EntryView({
             <button
               type="button"
               className="foot-pill"
-              onClick={() => onOpenSettings()}
+              onClick={() => onOpenSettings?.()}
               aria-label={t('settings.envConfigure')}
               title={t('settings.envConfigure')}
             >
@@ -677,7 +678,7 @@ export function EntryView({
           ) : null}
         </div>
       </main>
-      {petRailHidden ? null : (
+      {raizEmbedded || petRailHidden ? null : (
         <PetRail
           config={config}
           onAdoptInline={onAdoptPetInline}

@@ -8,7 +8,15 @@ export const RAIZ_READY_MESSAGE_TYPE = 'raiz:cowork-design:ready';
 export const RAIZ_SESSION_ACK_MESSAGE_TYPE = 'raiz:cowork-design:session-ack';
 export const RAIZ_SESSION_STORAGE_KEY = 'raiz:cowork-design:session';
 
-type ManagedSetting = 'locale' | 'theme' | 'accentColor' | 'designSystemId';
+type ManagedSetting = 'locale' | 'theme' | 'accentColor' | 'designSystemId' | 'providerProfile';
+export type RaizHiddenSettingsSection =
+  | 'execution'
+  | 'media'
+  | 'composio'
+  | 'connectors'
+  | 'memoryProvider'
+  | 'mcp'
+  | 'orbit';
 export type RaizMediaCapability = 'text' | 'image' | 'video' | 'audio';
 
 export interface RaizBridgeSession {
@@ -40,7 +48,21 @@ export interface RaizBridgeContext {
     audioVideoEnabled: boolean;
     budgetScope?: 'organization' | 'workspace' | 'user';
     managedProvider?: boolean;
+    managedRuntime?: 'raiz-gateway' | 'daemon-forward';
+    canEditProviderSettings?: boolean;
+    canViewProviderSettings?: boolean;
+    canOpenStandalone?: boolean;
+    hiddenSettingsSections?: RaizHiddenSettingsSection[];
     keyRotationRole?: 'super-admin' | 'admin';
+  };
+  mediaGateway?: {
+    mode?: 'daemon-forward' | 'direct';
+    generateEndpoint?: string;
+    taskEndpoint?: string;
+    defaultImageModel?: string;
+    allowedImageModels?: string[];
+    allowedSurfaces?: RaizMediaCapability[];
+    providerLabel?: string;
   };
   designSystem?: {
     id: string;
@@ -148,7 +170,25 @@ function asManagedSettings(value: unknown): ManagedSetting[] {
   if (!Array.isArray(value)) return [];
   return value.filter(
     (item): item is ManagedSetting =>
-      item === 'locale' || item === 'theme' || item === 'accentColor' || item === 'designSystemId'
+      item === 'locale' ||
+      item === 'theme' ||
+      item === 'accentColor' ||
+      item === 'designSystemId' ||
+      item === 'providerProfile'
+  );
+}
+
+function asHiddenSettingsSections(value: unknown): RaizHiddenSettingsSection[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is RaizHiddenSettingsSection =>
+      item === 'execution' ||
+      item === 'media' ||
+      item === 'composio' ||
+      item === 'connectors' ||
+      item === 'memoryProvider' ||
+      item === 'mcp' ||
+      item === 'orbit'
   );
 }
 
@@ -162,6 +202,10 @@ function asMediaCapabilities(value: unknown): RaizMediaCapability[] {
 
 function asBudgetScope(value: unknown): RaizBridgeContext['capabilities']['budgetScope'] {
   return value === 'organization' || value === 'workspace' || value === 'user' ? value : undefined;
+}
+
+function asManagedRuntime(value: unknown): RaizBridgeContext['capabilities']['managedRuntime'] {
+  return value === 'raiz-gateway' || value === 'daemon-forward' ? value : undefined;
 }
 
 function parseWorkspace(value: unknown): RaizBridgeContext['workspace'] {
@@ -195,12 +239,34 @@ function parseDesignSystem(value: unknown): RaizBridgeContext['designSystem'] {
   };
 }
 
+function parseMediaGateway(value: unknown): RaizBridgeContext['mediaGateway'] {
+  const raw = asObject(value);
+  if (!raw) return undefined;
+
+  const mode = raw.mode === 'daemon-forward' || raw.mode === 'direct' ? raw.mode : undefined;
+  const allowedImageModels = Array.isArray(raw.allowedImageModels)
+    ? raw.allowedImageModels.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : undefined;
+  const allowedSurfaces = asMediaCapabilities(raw.allowedSurfaces);
+
+  return {
+    mode,
+    generateEndpoint: asString(raw.generateEndpoint),
+    taskEndpoint: asString(raw.taskEndpoint),
+    defaultImageModel: asString(raw.defaultImageModel),
+    allowedImageModels,
+    allowedSurfaces: allowedSurfaces.length > 0 ? allowedSurfaces : undefined,
+    providerLabel: asString(raw.providerLabel),
+  };
+}
+
 export function parseRaizBridgeMessage(
   data: unknown,
   sourceOrigin: string
 ): RaizBridgeContext | null {
   const raw = asObject(data);
-  if (!raw || raw.type !== RAIZ_BRIDGE_MESSAGE_TYPE || raw.version !== 1) return null;
+  if (!raw || raw.type !== RAIZ_BRIDGE_MESSAGE_TYPE) return null;
+  if (raw.version !== 1 && raw.version !== 2) return null;
 
   const token = asString(raw.token);
   const expiresAt = asString(raw.expiresAt);
@@ -227,13 +293,36 @@ export function parseRaizBridgeMessage(
       audioVideoEnabled: capabilities?.audioVideoEnabled === true,
       budgetScope: asBudgetScope(capabilities?.budgetScope),
       managedProvider: capabilities?.managedProvider === true,
+      managedRuntime: asManagedRuntime(capabilities?.managedRuntime),
+      canEditProviderSettings: capabilities?.canEditProviderSettings === true,
+      canViewProviderSettings: capabilities?.canViewProviderSettings === true,
+      canOpenStandalone: capabilities?.canOpenStandalone === true,
+      hiddenSettingsSections: asHiddenSettingsSections(capabilities?.hiddenSettingsSections),
       keyRotationRole:
         capabilities?.keyRotationRole === 'super-admin' || capabilities?.keyRotationRole === 'admin'
           ? capabilities.keyRotationRole
           : undefined,
     },
+    mediaGateway: parseMediaGateway(raw.mediaGateway),
     designSystem: parseDesignSystem(raw.designSystem),
   };
+}
+
+export function isRaizManagedMode(
+  context: RaizBridgeContext | null | undefined,
+  embedded = isRaizEmbeddedMode()
+): boolean {
+  if (!embedded) return false;
+  if (!context) return true;
+  return context.capabilities.managedProvider === true || context.capabilities.managedRuntime === 'raiz-gateway';
+}
+
+export function canViewRaizProviderSettings(
+  context: RaizBridgeContext | null | undefined,
+  embedded = isRaizEmbeddedMode()
+): boolean {
+  if (!isRaizManagedMode(context, embedded)) return true;
+  return context?.capabilities.canViewProviderSettings === true;
 }
 
 export function persistRaizSession(context: RaizBridgeContext): void {

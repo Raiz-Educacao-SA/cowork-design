@@ -136,7 +136,7 @@ interface Props {
     choice: { model?: string; reasoning?: string },
   ) => void;
   onRefreshAgents: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
   onOpenMcpSettings?: () => void;
   // Pet wiring forwarded to the chat composer so users can adopt /
   // wake / tuck a pet without leaving the project view.
@@ -2309,7 +2309,7 @@ export function ProjectView({
               onModeChange={onModeChange}
               onAgentChange={onAgentChange}
               onAgentModelChange={onAgentModelChange}
-              onOpenSettings={onOpenSettings}
+              onOpenSettings={onOpenSettings ?? (() => undefined)}
               onRefreshAgents={onRefreshAgents}
               onBack={onBack}
             />
