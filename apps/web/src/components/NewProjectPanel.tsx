@@ -112,6 +112,7 @@ interface Props {
   connectorsLoading?: boolean;
   onOpenConnectorsTab?: () => void;
   allowedTabs?: CreateTab[];
+  managedProvider?: boolean;
   loading?: boolean;
 }
 
@@ -163,6 +164,7 @@ export function NewProjectPanel({
   connectorsLoading = false,
   onOpenConnectorsTab,
   allowedTabs,
+  managedProvider = false,
   loading = false,
 }: Props) {
   const t = useT();
@@ -684,6 +686,7 @@ export function NewProjectPanel({
             imageAspect={imageAspect}
             imageStyle={imageStyle}
             mediaProviders={mediaProviders}
+            managedProvider={managedProvider}
             onImageModel={setImageModel}
             onImageAspect={setImageAspect}
             onImageStyle={setImageStyle}
@@ -857,6 +860,10 @@ function ConnectorsSection({
   );
   const hasConfigured = configured.length > 0;
 
+  if (!loading && !hasConfigured && !onOpenConnectorsTab) {
+    return null;
+  }
+
   if (loading && !connectors) {
     return (
       <div className="newproj-section newproj-connectors">
@@ -873,7 +880,7 @@ function ConnectorsSection({
     >
       <div className="newproj-connectors-head">
         <label className="newproj-label">{t('newproj.connectorsLabel')}</label>
-        {hasConfigured ? (
+        {hasConfigured && onOpenConnectorsTab ? (
           <button
             type="button"
             className="newproj-connectors-manage"
@@ -907,7 +914,7 @@ function ConnectorsSection({
             ))}
           </ul>
         </>
-      ) : (
+      ) : onOpenConnectorsTab ? (
         <button
           type="button"
           className="newproj-connectors-empty"
@@ -930,7 +937,7 @@ function ConnectorsSection({
             </span>
           </span>
         </button>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1764,6 +1771,7 @@ function MediaProjectOptions(props:
       imageAspect: MediaAspect;
       imageStyle: string;
       mediaProviders?: Record<string, MediaProviderCredentials>;
+      managedProvider?: boolean;
       onImageModel: (value: string) => void;
       onImageAspect: (value: MediaAspect) => void;
       onImageStyle: (value: string) => void;
@@ -1796,13 +1804,15 @@ function MediaProjectOptions(props:
   if (props.surface === 'image') {
     return (
       <div className="newproj-media-options">
-        <MediaModelCards
-          label={t('newproj.modelLabel')}
-          models={supportedModels('image', IMAGE_MODELS)}
-          mediaProviders={props.mediaProviders}
-          value={props.imageModel}
-          onChange={props.onImageModel}
-        />
+        {props.managedProvider ? null : (
+          <MediaModelCards
+            label={t('newproj.modelLabel')}
+            models={supportedModels('image', IMAGE_MODELS)}
+            mediaProviders={props.mediaProviders}
+            value={props.imageModel}
+            onChange={props.onImageModel}
+          />
+        )}
         <AspectCards
           label={t('newproj.aspectLabel')}
           value={props.imageAspect}

@@ -36,7 +36,11 @@ import {
   syncMediaProvidersToDaemon,
 } from './state/config';
 import { applyAppearanceToDocument } from './state/appearance';
-import { applyRaizContextToConfig, useRaizBridge } from './integrations/raiz/bridge';
+import {
+  applyRaizContextToConfig,
+  isRaizManagedMode,
+  useRaizBridge,
+} from './integrations/raiz/bridge';
 import { isMacPlatform } from './utils/platform';
 import {
   createProject,
@@ -145,6 +149,7 @@ export function App() {
     [setLocale],
   );
   const raizBridge = useRaizBridge({ onContext: handleRaizContext });
+  const raizManaged = isRaizManagedMode(raizBridge.context, raizBridge.embedded);
   const effectiveConfig = useMemo(
     () => applyRaizContextToConfig(config, raizBridge.context),
     [config, raizBridge.context],
@@ -768,27 +773,31 @@ export function App() {
   }, [route, activeProject, projects, daemonLive]);
 
   const openSettings = useCallback((section: SettingsSection = 'execution') => {
+    if (raizManaged) return;
     setSettingsWelcome(false);
     setSettingsInitialSection(section);
     setSettingsOpen(true);
-  }, []);
+  }, [raizManaged]);
 
   const openPetSettings = useCallback(() => {
+    if (raizManaged) return;
     setSettingsWelcome(false);
     setSettingsInitialSection('pet');
     setSettingsOpen(true);
-  }, []);
+  }, [raizManaged]);
 
   const openMcpSettings = useCallback(() => {
+    if (raizManaged) return;
     setSettingsWelcome(false);
     setSettingsInitialSection('mcpClient');
     setSettingsOpen(true);
-  }, []);
+  }, [raizManaged]);
 
   // Cmd+, (mac) / Ctrl+, (win/linux) opens Settings. Capture phase so we
   // beat the browser's default Preferences dialog. Platform-gated so
   // meta/ctrl don't conflict across OS.
   useEffect(() => {
+    if (raizManaged) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const primary = isMacPlatform() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
       if (primary && !e.shiftKey && !e.altKey && e.key === ',') {
@@ -799,7 +808,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [openSettings]);
+  }, [openSettings, raizManaged]);
 
   // Explicit enabled toggle — true = wake, false = tuck. Persists to
   // localStorage so the overlay state survives across reloads. We keep
@@ -949,11 +958,11 @@ export function App() {
           onAgentChange={handleAgentChange}
           onAgentModelChange={handleAgentModelChange}
           onRefreshAgents={refreshAgents}
-          onOpenSettings={openSettings}
-          onOpenMcpSettings={openMcpSettings}
-          onAdoptPetInline={handleAdoptPet}
-          onTogglePet={handleTogglePet}
-          onOpenPetSettings={openPetSettings}
+          onOpenSettings={raizManaged ? undefined : openSettings}
+          onOpenMcpSettings={raizManaged ? undefined : openMcpSettings}
+          onAdoptPetInline={raizManaged ? undefined : handleAdoptPet}
+          onTogglePet={raizManaged ? undefined : handleTogglePet}
+          onOpenPetSettings={raizManaged ? undefined : openPetSettings}
           onBack={handleBack}
           onClearPendingPrompt={handleClearPendingPrompt}
           onTouchProject={handleTouchProject}
@@ -985,7 +994,7 @@ export function App() {
           onOpenLiveArtifact={handleOpenLiveArtifact}
           onDeleteProject={handleDeleteProject}
           onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}
-          onOpenSettings={openSettings}
+          onOpenSettings={raizManaged ? undefined : openSettings}
           onAdoptPet={openPetSettings}
           onAdoptPetInline={handleAdoptPet}
           onTogglePet={handleTogglePet}
@@ -996,7 +1005,7 @@ export function App() {
         onTuck={handleTuckPet}
         onOpenSettings={openPetSettings}
       />
-      {settingsOpen ? (
+      {settingsOpen && !raizManaged ? (
         <SettingsDialog
           initial={config}
           agents={agents}
@@ -1029,7 +1038,7 @@ export function App() {
           onReloadMediaProviders={reloadMediaProvidersFromDaemon}
         />
       ) : null}
-      <MemoryToast onOpenMemory={() => openSettings('memory')} />
+      {raizManaged ? null : <MemoryToast onOpenMemory={() => openSettings('memory')} />}
       {/* First-run privacy consent banner. It waits for daemon config
           hydration because privacyDecisionAt is daemon-owned and stripped
           from localStorage. It also yields while Settings is open so the
