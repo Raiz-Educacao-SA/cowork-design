@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n';
+import { copyToClipboard } from '../lib/copy-to-clipboard';
 import { fetchPromptTemplate } from '../providers/registry';
 import type {
   PromptTemplateDetail,
@@ -64,7 +65,8 @@ export function PromptTemplatePreviewModal({ summary, onClose }: Props) {
 
   function handleCopy() {
     if (!detail) return;
-    void navigator.clipboard.writeText(detail.prompt).then(() => {
+    void copyToClipboard(detail.prompt).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     });
