@@ -341,6 +341,24 @@ export function persistRaizSession(context: RaizBridgeContext): void {
   }
 }
 
+export async function syncRaizSessionToLocalDaemon(context: RaizBridgeContext): Promise<void> {
+  if (!isRaizManagedMode(context, true)) return;
+
+  await fetch('/api/raiz/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token: context.session.token,
+      expiresAt: context.session.expiresAt,
+      workspaceId: context.workspaceId,
+      raizPlatformOrigin: context.raizPlatformOrigin,
+      mediaGateway: context.mediaGateway,
+    }),
+  }).catch(() => {
+    /* The daemon may still be starting; media generation surfaces the missing session clearly. */
+  });
+}
+
 export function buildRaizSessionAckMessage(context: RaizBridgeContext) {
   return {
     type: RAIZ_SESSION_ACK_MESSAGE_TYPE,
@@ -435,6 +453,7 @@ export function useRaizBridge(options: UseRaizBridgeOptions = {}) {
       if (!parsed) return;
 
       persistRaizSession(parsed);
+      void syncRaizSessionToLocalDaemon(parsed);
       setContext(parsed);
       onContext?.(parsed);
 
