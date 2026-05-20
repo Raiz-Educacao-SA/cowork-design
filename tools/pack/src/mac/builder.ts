@@ -6,6 +6,7 @@ import { macResources } from "../resources.js";
 import { execFileAsync } from "./commands.js";
 import {
   ELECTRON_BUILDER_ASAR,
+  ELECTRON_BUILDER_ASAR_UNPACK,
   ELECTRON_BUILDER_FILE_PATTERNS,
   MAC_ELECTRON_LANGUAGES,
   PRODUCT_NAME,
@@ -90,6 +91,7 @@ export async function runElectronBuilder(
     afterPack: webStandaloneHookConfigPath == null ? undefined : macResources.webStandaloneAfterPackHook,
     afterSign: config.signed ? macResources.notarizeHook : undefined,
     asar: ELECTRON_BUILDER_ASAR,
+    asarUnpack: ELECTRON_BUILDER_ASAR_UNPACK,
     buildDependenciesFromSource: false,
     compression: config.macCompression,
     directories: {
@@ -130,10 +132,14 @@ export async function runElectronBuilder(
     npmRebuild: false,
     productName: PRODUCT_NAME,
     icon: macResources.icon,
+    // Fase 3.5 (item B): switched from generic to github provider so
+    // electron-updater can discover releases and latest-mac.yml from the
+    // Raiz-Educacao-SA/rAIz_Cowork GitHub Releases page.
     publish: [
       {
-        provider: "generic",
-        url: "https://updates.invalid/open-design",
+        provider: "github",
+        owner: "Raiz-Educacao-SA",
+        repo: "rAIz_Cowork",
       },
     ],
   };

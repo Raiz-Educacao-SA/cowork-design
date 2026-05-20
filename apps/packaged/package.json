@@ -29,7 +29,8 @@
     "@open-design/platform": "workspace:*",
     "@open-design/sidecar": "workspace:*",
     "@open-design/sidecar-proto": "workspace:*",
-    "@open-design/web": "workspace:*"
+    "@open-design/web": "workspace:*",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "@types/node": "24.12.2",

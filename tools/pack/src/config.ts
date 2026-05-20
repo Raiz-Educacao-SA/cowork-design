@@ -86,7 +86,8 @@ function resolveToolPackBuildOutput(platform: ToolPackPlatform, value: string | 
 }
 
 function resolveToolPackMacCompression(value: string | undefined): ToolPackMacCompression {
-  if (value == null || value.length === 0) return "normal";
+  // Fase 3.5 (item A): default elevated to "maximum" to reduce .dmg size (target ≤300MB).
+  if (value == null || value.length === 0) return "maximum";
   if (value === "store" || value === "normal" || value === "maximum") return value;
   throw new Error(`unsupported mac --mac-compression value: ${value}`);
 }
