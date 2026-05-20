@@ -45,7 +45,11 @@ async function writeWebStandaloneHookConfig(config: ToolPackConfig, paths: MacPa
         pruneCopiedSharp: true,
         pruneRootNext: true,
         pruneRootSharp: true,
-        macAdhocBundleSign: !config.signed,
+        // Ad-hoc signing of the Electron Framework fails on macOS Sequoia with
+        // "code has no resources but signature indicates they must be present".
+        // Disable ad-hoc signing for unsigned builds; it is only needed for
+        // production notarized releases where config.signed is true.
+        macAdhocBundleSign: config.signed,
         resourceName: WEB_STANDALONE_RESOURCE_NAME,
         standaloneSourceRoot: join(webRoot, ".next", "standalone"),
         version: 1,
