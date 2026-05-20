@@ -1,5 +1,11 @@
 import type { Express } from 'express';
 import type { RouteDeps } from './server-context.js';
+import {
+  generateRaizManagedImage,
+  getRaizManagedSession,
+  isRaizManagedRuntimeEnabled,
+  setRaizManagedSession,
+} from './raiz-managed-media.js';
 
 export interface RegisterMediaRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'ids' | 'media' | 'appConfig' | 'orbit' | 'nativeDialogs' | 'projectStore' | 'projectFiles' | 'conversations' | 'research'> {}
 
@@ -81,6 +87,18 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
     }
   });
 
+  app.post('/api/raiz/session', async (req, res) => {
+    if (!isLocalSameOrigin(req, getResolvedPort())) {
+      return res.status(403).json({ error: 'cross-origin request rejected' });
+    }
+    try {
+      setRaizManagedSession(req.body ?? {});
+      res.json({ ok: true });
+    } catch {
+      res.status(400).json({ error: 'invalid Raiz managed session' });
+    }
+  });
+
   app.get('/api/orbit/status', async (req, res) => {
     if (!isLocalSameOrigin(req, getResolvedPort())) {
       return res.status(403).json({ error: 'cross-origin request rejected' });
@@ -149,28 +167,44 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
 
       task.status = 'running';
       persistMediaTask(task);
-      generateMedia({
-        projectRoot: PROJECT_ROOT,
-        projectsRoot: PROJECTS_DIR,
-        projectId,
-        surface: req.body?.surface,
-        model: req.body?.model,
-        prompt: req.body?.prompt,
-        output: req.body?.output,
-        aspect: req.body?.aspect,
-        length:
-          typeof req.body?.length === 'number' ? req.body.length : undefined,
-        duration:
-          typeof req.body?.duration === 'number'
-            ? req.body.duration
-            : undefined,
-        voice: req.body?.voice,
-        audioKind: req.body?.audioKind,
-        language: typeof req.body?.language === 'string' ? req.body.language : undefined,
-        compositionDir: req.body?.compositionDir,
-        image: req.body?.image,
-        onProgress: (line: any) => appendTaskProgress(task, line),
-      })
+      const useRaizManagedImage =
+        isRaizManagedRuntimeEnabled() && req.body?.surface === 'image';
+      const mediaPromise = useRaizManagedImage
+        ? generateRaizManagedImage({
+            session: getRaizManagedSession(),
+            projectsRoot: PROJECTS_DIR,
+            projectId,
+            model: req.body?.model,
+            prompt: req.body?.prompt,
+            output: req.body?.output,
+            aspect: req.body?.aspect,
+            writeProjectFile,
+            onProgress: (line: string) => appendTaskProgress(task, line),
+          })
+        : generateMedia({
+            projectRoot: PROJECT_ROOT,
+            projectsRoot: PROJECTS_DIR,
+            projectId,
+            surface: req.body?.surface,
+            model: req.body?.model,
+            prompt: req.body?.prompt,
+            output: req.body?.output,
+            aspect: req.body?.aspect,
+            length:
+              typeof req.body?.length === 'number' ? req.body.length : undefined,
+            duration:
+              typeof req.body?.duration === 'number'
+                ? req.body.duration
+                : undefined,
+            voice: req.body?.voice,
+            audioKind: req.body?.audioKind,
+            language: typeof req.body?.language === 'string' ? req.body.language : undefined,
+            compositionDir: req.body?.compositionDir,
+            image: req.body?.image,
+            onProgress: (line: any) => appendTaskProgress(task, line),
+          });
+
+      mediaPromise
         .then((meta: any) => {
           task.status = 'done';
           task.file = meta;

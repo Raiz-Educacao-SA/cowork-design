@@ -6,6 +6,7 @@ import { macResources } from "../resources.js";
 import { execFileAsync } from "./commands.js";
 import {
   ELECTRON_BUILDER_ASAR,
+  ELECTRON_BUILDER_ASAR_UNPACK,
   ELECTRON_BUILDER_FILE_PATTERNS,
   MAC_ELECTRON_LANGUAGES,
   PRODUCT_NAME,
@@ -45,7 +46,11 @@ async function writeWebStandaloneHookConfig(config: ToolPackConfig, paths: MacPa
         pruneCopiedSharp: true,
         pruneRootNext: true,
         pruneRootSharp: true,
-        macAdhocBundleSign: !config.signed,
+        // Ad-hoc signing of the Electron Framework fails on macOS Sequoia with
+        // "code has no resources but signature indicates they must be present".
+        // Disable ad-hoc signing for unsigned builds; it is only needed for
+        // production notarized releases where config.signed is true.
+        macAdhocBundleSign: config.signed,
         resourceName: WEB_STANDALONE_RESOURCE_NAME,
         standaloneSourceRoot: join(webRoot, ".next", "standalone"),
         version: 1,
@@ -90,6 +95,7 @@ export async function runElectronBuilder(
     afterPack: webStandaloneHookConfigPath == null ? undefined : macResources.webStandaloneAfterPackHook,
     afterSign: config.signed ? macResources.notarizeHook : undefined,
     asar: ELECTRON_BUILDER_ASAR,
+    asarUnpack: ELECTRON_BUILDER_ASAR_UNPACK,
     buildDependenciesFromSource: false,
     compression: config.macCompression,
     directories: {
@@ -130,10 +136,14 @@ export async function runElectronBuilder(
     npmRebuild: false,
     productName: PRODUCT_NAME,
     icon: macResources.icon,
+    // Fase 3.5 (item B): switched from generic to github provider so
+    // electron-updater can discover releases and latest-mac.yml from the
+    // Raiz-Educacao-SA/rAIz_Cowork GitHub Releases page.
     publish: [
       {
-        provider: "generic",
-        url: "https://updates.invalid/open-design",
+        provider: "github",
+        owner: "Raiz-Educacao-SA",
+        repo: "rAIz_Cowork",
       },
     ],
   };

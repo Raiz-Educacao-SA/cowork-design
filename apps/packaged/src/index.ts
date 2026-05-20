@@ -12,6 +12,13 @@ import {
 } from "@open-design/sidecar";
 import { readProcessStamp } from "@open-design/platform";
 import { app, dialog } from "electron";
+// Fase 3.5 (item B): electron-updater wiring.
+// autoUpdater.checkForUpdatesAndNotify() is called once the Electron app is
+// ready. It reads the `publish` provider from the embedded latest-mac.yml /
+// latest.yml and fetches update metadata from GitHub Releases.
+// No Apple Developer ID or GitHub token is required for the check itself; only
+// the actual download+install step requires a signed release asset.
+import { autoUpdater } from "electron-updater";
 
 import { readPackagedConfig } from "./config.js";
 import { writePackagedDesktopIdentity } from "./identity.js";
@@ -70,6 +77,14 @@ async function main(): Promise<void> {
   applyPackagedElectronPathOverrides(paths);
   const identity = await writePackagedDesktopIdentity({ paths, stamp });
   await app.whenReady();
+
+  // Fase 3.5 (item B): check for updates on startup, silently in dev builds.
+  // The call is intentionally fire-and-forget; update errors must not crash
+  // the runtime. checkForUpdatesAndNotify() shows a native notification when
+  // an update is downloaded and ready to install.
+  autoUpdater.checkForUpdatesAndNotify().catch((err: unknown) => {
+    packagedLogger?.warn("auto-update check failed (non-fatal)", { err });
+  });
 
   applyLaunchEnv(paths.runtimeRoot, stamp);
 
