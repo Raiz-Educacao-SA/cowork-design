@@ -577,12 +577,29 @@ async function collectMacAdhocSignTargets(appPath) {
 async function signMacAdhocBundle(appPath) {
   const targets = await collectMacAdhocSignTargets(appPath);
   for (const target of targets) {
+    // On macOS Sequoia, codesign exits non-zero with "bundle format is ambiguous"
+    // for some Electron Framework bundles even though signing succeeded. We tolerate
+    // that specific warning so the build can proceed without a real Apple identity.
     await execFileAsync("codesign", ["--force", "--sign", "-", "--timestamp=none", target], {
       maxBuffer: 20 * 1024 * 1024,
+    }).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("bundle format is ambiguous")) {
+        process.stderr.write(`[tools-pack web-standalone] codesign ambiguous-format warning (non-fatal): ${target}\n`);
+        return;
+      }
+      throw err;
     });
   }
   await execFileAsync("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath], {
     maxBuffer: 20 * 1024 * 1024,
+  }).catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("bundle format is ambiguous")) {
+      process.stderr.write(`[tools-pack web-standalone] codesign verify ambiguous-format warning (non-fatal): ${appPath}\n`);
+      return;
+    }
+    throw err;
   });
   return targets;
 }
