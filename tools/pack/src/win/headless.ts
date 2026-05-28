@@ -16,8 +16,9 @@ import { requestJsonIpc, resolveAppIpcPath } from "@open-design/sidecar";
 import { spawnBackgroundProcess } from "@open-design/platform";
 
 import type { ToolPackConfig } from "../config.js";
-import { WEB_STANDALONE_RESOURCE_NAME } from "./constants.js";
+import { PRODUCT_NAME, WEB_STANDALONE_RESOURCE_NAME } from "./constants.js";
 import { pathExists } from "./fs.js";
+import { readBuiltAppManifest } from "./manifest.js";
 import { resolveWinPaths, sanitizeNamespace } from "./paths.js";
 import type { WinPaths } from "./types.js";
 
@@ -38,9 +39,19 @@ const execFileAsync = promisify(execFile);
 // headless web sidecar into standalone mode via OD_WEB_OUTPUT_MODE/OD_WEB_STANDALONE_ROOT
 // (supported by `apps/packaged/src/headless.ts`).
 
-function resolveWinHeadlessEntryPath(paths: WinPaths): string {
+// `tools-pack win build` materializes the unpacked app inside a hash-keyed cache
+// entry, not at `paths.unpackedRoot` (which is the conventional/expected path).
+// The real unpacked root is recorded in `built-app.json` (same pattern report.ts /
+// build.ts use). We read the manifest and fall back to `paths.unpackedRoot` for
+// installs that bypass the cache (legacy / direct builds).
+async function resolveWinUnpackedRoot(paths: WinPaths): Promise<string> {
+  const builtApp = await readBuiltAppManifest(paths);
+  return builtApp?.unpackedRoot ?? paths.unpackedRoot;
+}
+
+function resolveWinHeadlessEntryPath(unpackedRoot: string): string {
   return join(
-    paths.unpackedRoot,
+    unpackedRoot,
     "resources",
     "app",
     "node_modules",
@@ -51,16 +62,16 @@ function resolveWinHeadlessEntryPath(paths: WinPaths): string {
   );
 }
 
-function resolveWinHeadlessElectronPath(paths: WinPaths): string {
-  return paths.unpackedExePath;
+function resolveWinHeadlessElectronPath(unpackedRoot: string): string {
+  return join(unpackedRoot, `${PRODUCT_NAME}.exe`);
 }
 
-function resolveWinHeadlessResourceRoot(paths: WinPaths): string {
-  return join(paths.unpackedRoot, "resources", "open-design");
+function resolveWinHeadlessResourceRoot(unpackedRoot: string): string {
+  return join(unpackedRoot, "resources", "open-design");
 }
 
-function resolveWinHeadlessWebStandaloneRoot(paths: WinPaths): string {
-  return join(paths.unpackedRoot, "resources", WEB_STANDALONE_RESOURCE_NAME);
+function resolveWinHeadlessWebStandaloneRoot(unpackedRoot: string): string {
+  return join(unpackedRoot, "resources", WEB_STANDALONE_RESOURCE_NAME);
 }
 
 function headlessLauncherPath(config: ToolPackConfig): string {
@@ -170,10 +181,11 @@ export type WinHeadlessStopResult = {
 
 export async function installPackedWinHeadless(config: ToolPackConfig): Promise<WinHeadlessInstallResult> {
   const paths = resolveWinPaths(config);
-  const entryPath = resolveWinHeadlessEntryPath(paths);
-  const electronPath = resolveWinHeadlessElectronPath(paths);
-  const resourceRoot = resolveWinHeadlessResourceRoot(paths);
-  const webStandaloneRoot = resolveWinHeadlessWebStandaloneRoot(paths);
+  const unpackedRoot = await resolveWinUnpackedRoot(paths);
+  const entryPath = resolveWinHeadlessEntryPath(unpackedRoot);
+  const electronPath = resolveWinHeadlessElectronPath(unpackedRoot);
+  const resourceRoot = resolveWinHeadlessResourceRoot(unpackedRoot);
+  const webStandaloneRoot = resolveWinHeadlessWebStandaloneRoot(unpackedRoot);
 
   if (!(await pathExists(entryPath))) {
     throw new Error(`headless entry not found at ${entryPath}; run \`tools-pack win build --to dir\` first`);
@@ -215,10 +227,11 @@ export async function installPackedWinHeadless(config: ToolPackConfig): Promise<
 
 export async function startPackedWinHeadless(config: ToolPackConfig): Promise<WinHeadlessStartResult> {
   const paths = resolveWinPaths(config);
-  const entryPath = resolveWinHeadlessEntryPath(paths);
-  const electronPath = resolveWinHeadlessElectronPath(paths);
-  const resourceRoot = resolveWinHeadlessResourceRoot(paths);
-  const webStandaloneRoot = resolveWinHeadlessWebStandaloneRoot(paths);
+  const unpackedRoot = await resolveWinUnpackedRoot(paths);
+  const entryPath = resolveWinHeadlessEntryPath(unpackedRoot);
+  const electronPath = resolveWinHeadlessElectronPath(unpackedRoot);
+  const resourceRoot = resolveWinHeadlessResourceRoot(unpackedRoot);
+  const webStandaloneRoot = resolveWinHeadlessWebStandaloneRoot(unpackedRoot);
 
   if (!(await pathExists(entryPath))) {
     throw new Error(`headless entry not found at ${entryPath}; run \`tools-pack win build --to dir\` first`);
