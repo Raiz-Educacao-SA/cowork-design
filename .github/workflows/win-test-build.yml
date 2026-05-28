@@ -100,6 +100,14 @@ jobs:
               Write-Host "----- $($_.FullName) -----"
               Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 80
             }
+            Write-Host "===== ALL files under tools-pack/runtime (tree) ====="
+            Get-ChildItem -Path "$env:RUNNER_TEMP/tools-pack/runtime" -Recurse -ErrorAction SilentlyContinue |
+              Select-Object FullName,Length | Format-Table -AutoSize | Out-String -Width 260
+            Write-Host "===== identity files (*-root.json) recursive under tools-pack ====="
+            Get-ChildItem -Path "$env:RUNNER_TEMP/tools-pack" -Recurse -Filter "*-root.json" -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "----- $($_.FullName) -----"
+              Get-Content $_.FullName -ErrorAction SilentlyContinue
+            }
             throw "tools-pack win start --headless failed (exit $exit)"
           }
           $result = $raw | ConvertFrom-Json
