@@ -45,23 +45,27 @@ jobs:
             --to dir `
             --json | Tee-Object -FilePath "$env:RUNNER_TEMP/win-build.json"
 
-      - name: Locate headless artifacts (node.exe + headless.mjs)
+      - name: Locate headless artifacts (electron runtime + headless.mjs)
         id: locate
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $root = "$env:RUNNER_TEMP/tools-pack"
-          $node = Get-ChildItem -Path $root -Recurse -Filter "node.exe" -ErrorAction SilentlyContinue |
-                  Where-Object { $_.FullName -match "[\\/]bin[\\/]node\.exe$" } | Select-Object -First 1
           $headless = Get-ChildItem -Path $root -Recurse -Filter "headless.mjs" -ErrorAction SilentlyContinue |
                   Where-Object { $_.FullName -match "@open-design[\\/]packaged[\\/]dist[\\/]headless\.mjs$" } | Select-Object -First 1
-          Write-Host "node.exe     => $($node.FullName)"
-          Write-Host "headless.mjs => $($headless.FullName)"
-          if (-not $node)     { throw "bin/node.exe NOT found in build output" }
           if (-not $headless) { throw "@open-design/packaged/dist/headless.mjs NOT found in build output" }
-          $resourceRoot = Split-Path (Split-Path $node.FullName -Parent) -Parent
+          Write-Host "headless.mjs => $($headless.FullName)"
+          # win-unpacked root holds the electron exe + resources/
+          $winUnpacked = ($headless.FullName -replace '(?i)(.*\\win-unpacked)\\.*', '$1')
+          Write-Host "win-unpacked => $winUnpacked"
+          # The app Electron build has NO standalone node.exe; the bundled better-sqlite3 is
+          # compiled for Electron's ABI, so the runtime MUST be the electron exe via ELECTRON_RUN_AS_NODE.
+          $electron = Get-ChildItem -Path $winUnpacked -Filter "*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $electron) { throw "electron exe NOT found at $winUnpacked" }
+          Write-Host "electron     => $($electron.FullName)"
+          $resourceRoot = Join-Path $winUnpacked "resources\open-design"
           Write-Host "OD_RESOURCE_ROOT => $resourceRoot"
-          "node=$($node.FullName)"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "electron=$($electron.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "headless=$($headless.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "resource_root=$resourceRoot"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
@@ -69,7 +73,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $node = "${{ steps.locate.outputs.node }}"
+          $electron = "${{ steps.locate.outputs.electron }}"
           $headless = "${{ steps.locate.outputs.headless }}"
           $resourceRoot = "${{ steps.locate.outputs.resource_root }}"
           $dataDir = Join-Path $env:RUNNER_TEMP "od-data"
@@ -80,9 +84,10 @@ jobs:
           $env:OD_NAMESPACE = "win-test"
           $env:OD_DATA_DIR = $dataDir
           $env:OD_RESOURCE_ROOT = $resourceRoot
+          $env:ELECTRON_RUN_AS_NODE = "1"
 
-          Write-Host "Spawning headless: $node $headless"
-          $proc = Start-Process -FilePath $node -ArgumentList @($headless) `
+          Write-Host "Spawning headless (electron as node): $electron $headless"
+          $proc = Start-Process -FilePath $electron -ArgumentList @($headless) `
             -WorkingDirectory (Split-Path $headless -Parent) `
             -RedirectStandardOutput $log -RedirectStandardError "$log.err" `
             -PassThru -NoNewWindow
