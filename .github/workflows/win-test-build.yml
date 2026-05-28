@@ -104,6 +104,13 @@ jobs:
 
           Write-Host "===== headless stdout ====="; Get-Content $log -ErrorAction SilentlyContinue
           Write-Host "===== headless stderr ====="; Get-Content "$log.err" -ErrorAction SilentlyContinue
+          Write-Host "===== sidecar logs (recursive *.log under OD_DATA_DIR) ====="
+          Get-ChildItem -Path $dataDir -Recurse -Include *.log -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "----- $($_.FullName) -----"
+            Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 80
+          }
+          Write-Host "===== tree under OD_DATA_DIR ====="
+          Get-ChildItem -Path $dataDir -Recurse -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize | Out-String -Width 240
 
           if (-not $url) {
             if (-not $proc.HasExited) { $proc.Kill() }
