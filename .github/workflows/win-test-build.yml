@@ -96,6 +96,10 @@ jobs:
           $env:OD_DATA_DIR = $dataDir
           $env:OD_RESOURCE_ROOT = $resourceRoot
           $env:ELECTRON_RUN_AS_NODE = "1"
+          # Windows packaged web ships as a Next.js standalone bundle (not server-mode node_modules)
+          $env:OD_WEB_OUTPUT_MODE = "standalone"
+          $env:OD_WEB_STANDALONE_ROOT = (Join-Path (Split-Path $resourceRoot -Parent) "open-design-web-standalone")
+          Write-Host "OD_WEB_STANDALONE_ROOT => $($env:OD_WEB_STANDALONE_ROOT)"
 
           Write-Host "Spawning headless (electron as node): $electron $headless"
           $proc = Start-Process -FilePath $electron -ArgumentList @($headless) `

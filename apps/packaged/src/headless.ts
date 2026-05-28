@@ -52,6 +52,17 @@ function resolveHeadlessConfig(): PackagedConfig {
     process.env.OD_RESOURCE_ROOT ??
     join(__dirname, "..", "..", "..", "open-design");
 
+  // Web runtime mode. Defaults to "server" (Linux headless-install layout: web deps in
+  // node_modules). Packaged Windows/macOS builds ship the Next.js web as a standalone
+  // bundle (resources/open-design-web-standalone), so a launcher can opt in via
+  // OD_WEB_OUTPUT_MODE=standalone. The bundle root defaults to the sibling of
+  // resourceRoot but can be overridden with OD_WEB_STANDALONE_ROOT.
+  const webOutputMode = process.env.OD_WEB_OUTPUT_MODE === "standalone" ? "standalone" : "server";
+  const webStandaloneRoot =
+    webOutputMode === "standalone"
+      ? (process.env.OD_WEB_STANDALONE_ROOT ?? join(resourceRoot, "..", "open-design-web-standalone"))
+      : null;
+
   return {
     appVersion: null,
     daemonCliEntry: null,
@@ -61,8 +72,8 @@ function resolveHeadlessConfig(): PackagedConfig {
     nodeCommand: null,
     resourceRoot,
     webSidecarEntry: null,
-    webStandaloneRoot: null,
-    webOutputMode: "server",
+    webStandaloneRoot,
+    webOutputMode,
   };
 }
 
