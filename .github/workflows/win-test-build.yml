@@ -1,5 +1,5 @@
-# JUSTIFICATIVA-GHA: W2 — build de instalador Windows (binário multi-plataforma) para teste manual
-# ALTERNATIVA-DESCARTADA: build local no Mac inviável (NSIS + Node 24 exigem runner Windows); release-beta exige secrets R2 ausentes
+# JUSTIFICATIVA-GHA: W2 — validação do runtime headless do Open Design no Windows (binário multi-plataforma)
+# ALTERNATIVA-DESCARTADA: build/teste local no Mac inviável (Node 24 + Windows runtime exigem runner windows)
 name: win-test-build
 
 on:
@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build Open Design Windows (test, unsigned)
+  headless-smoke:
+    name: Windows headless smoke (no Electron, no NSIS)
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -33,15 +33,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup NSIS
-        shell: pwsh
-        run: |
-          if ((Get-Command makensis.exe -ErrorAction SilentlyContinue) -or (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe")) {
-            exit 0
-          }
-          choco install nsis -y --no-progress
-
-      - name: Build Windows installer (NSIS, portable, unsigned)
+      - name: Build Windows app dir (no NSIS, avoids makensis)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -50,17 +42,83 @@ jobs:
             --namespace win-test `
             --portable `
             --app-version "0.6.0-test" `
-            --to nsis `
-            --json
+            --to dir `
+            --json | Tee-Object -FilePath "$env:RUNNER_TEMP/win-build.json"
 
-      - name: List build outputs
-        if: always()
+      - name: Locate headless artifacts (node.exe + headless.mjs)
+        id: locate
         shell: pwsh
-        run: Get-ChildItem -Recurse "$env:RUNNER_TEMP/tools-pack" -Include *.exe,*.nsis 2>$null | Select-Object FullName,Length
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "$env:RUNNER_TEMP/tools-pack"
+          $node = Get-ChildItem -Path $root -Recurse -Filter "node.exe" -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match "[\\/]bin[\\/]node\.exe$" } | Select-Object -First 1
+          $headless = Get-ChildItem -Path $root -Recurse -Filter "headless.mjs" -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match "@open-design[\\/]packaged[\\/]dist[\\/]headless\.mjs$" } | Select-Object -First 1
+          Write-Host "node.exe     => $($node.FullName)"
+          Write-Host "headless.mjs => $($headless.FullName)"
+          if (-not $node)     { throw "bin/node.exe NOT found in build output" }
+          if (-not $headless) { throw "@open-design/packaged/dist/headless.mjs NOT found in build output" }
+          $resourceRoot = Split-Path (Split-Path $node.FullName -Parent) -Parent
+          Write-Host "OD_RESOURCE_ROOT => $resourceRoot"
+          "node=$($node.FullName)"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "headless=$($headless.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "resource_root=$resourceRoot"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Upload installer artifact
+      - name: Run headless and verify Open Design serves a URL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $node = "${{ steps.locate.outputs.node }}"
+          $headless = "${{ steps.locate.outputs.headless }}"
+          $resourceRoot = "${{ steps.locate.outputs.resource_root }}"
+          $dataDir = Join-Path $env:RUNNER_TEMP "od-data"
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          $log = Join-Path $env:RUNNER_TEMP "headless.log"
+          "" | Set-Content $log
+
+          $env:OD_NAMESPACE = "win-test"
+          $env:OD_DATA_DIR = $dataDir
+          $env:OD_RESOURCE_ROOT = $resourceRoot
+
+          Write-Host "Spawning headless: $node $headless"
+          $proc = Start-Process -FilePath $node -ArgumentList @($headless) `
+            -WorkingDirectory (Split-Path $headless -Parent) `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err" `
+            -PassThru -NoNewWindow
+
+          $url = $null
+          $deadline = (Get-Date).AddSeconds(150)
+          while ((Get-Date) -lt $deadline -and -not $url) {
+            Start-Sleep -Seconds 3
+            $content = (Get-Content $log -Raw -ErrorAction SilentlyContinue) + (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue)
+            $m = [regex]::Match($content, "http://(127\.0\.0\.1|localhost):\d+")
+            if ($m.Success) { $url = $m.Value }
+            if ($proc.HasExited) { break }
+          }
+
+          Write-Host "===== headless stdout ====="; Get-Content $log -ErrorAction SilentlyContinue
+          Write-Host "===== headless stderr ====="; Get-Content "$log.err" -ErrorAction SilentlyContinue
+
+          if (-not $url) {
+            if (-not $proc.HasExited) { $proc.Kill() }
+            throw "headless did not report a web URL within 150s"
+          }
+          Write-Host "Detected web URL => $url"
+
+          $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
+          Write-Host "HTTP status => $($resp.StatusCode)"
+          if (-not $proc.HasExited) { $proc.Kill() }
+          if ($resp.StatusCode -ge 400) { throw "Open Design web returned HTTP $($resp.StatusCode)" }
+          Write-Host "OK: Open Design headless serves HTTP on Windows"
+
+      - name: Upload logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: open-design-win-installer
-          path: ${{ runner.temp }}/tools-pack/**/*.exe
-          if-no-files-found: error
+          name: headless-smoke-logs
+          path: |
+            ${{ runner.temp }}/headless.log
+            ${{ runner.temp }}/headless.log.err
+            ${{ runner.temp }}/win-build.json
+          if-no-files-found: warn
