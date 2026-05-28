@@ -36,14 +36,25 @@ jobs:
       - name: Build Windows app dir (no NSIS, avoids makensis)
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          pnpm exec tools-pack win build `
-            --dir "$env:RUNNER_TEMP/tools-pack" `
-            --namespace win-test `
-            --portable `
-            --app-version "0.6.0-test" `
-            --to dir `
-            --json | Tee-Object -FilePath "$env:RUNNER_TEMP/win-build.json"
+          # electron-builder on Windows intermittently fails renaming electron.exe -> product .exe
+          # (Defender / file lock). Retry up to 3x, clearing the partial builder cache between tries.
+          $ErrorActionPreference = "Continue"
+          $ok = $false
+          for ($i = 1; $i -le 3; $i++) {
+            Write-Host "===== tools-pack win build (attempt $i/3) ====="
+            pnpm exec tools-pack win build `
+              --dir "$env:RUNNER_TEMP/tools-pack" `
+              --namespace win-test `
+              --portable `
+              --app-version "0.6.0-test" `
+              --to dir `
+              --json | Tee-Object -FilePath "$env:RUNNER_TEMP/win-build.json"
+            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            Write-Warning "build attempt $i failed (exit $LASTEXITCODE); clearing electron-builder cache + retrying"
+            Remove-Item -Recurse -Force "$env:RUNNER_TEMP/tools-pack/cache/entries/win.electron-builder-dir" -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 8
+          }
+          if (-not $ok) { throw "tools-pack win build failed after 3 attempts" }
 
       - name: Locate headless artifacts (electron runtime + headless.mjs)
         id: locate
