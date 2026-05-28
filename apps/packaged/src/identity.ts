@@ -1,4 +1,4 @@
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 
 import { removeFile, writeJsonFile } from "@open-design/sidecar";
 import type { SidecarStamp } from "@open-design/sidecar-proto";
@@ -88,7 +88,10 @@ export async function writePackagedWebIdentity(options: {
   url: string;
 }): Promise<void> {
   const identity: PackagedWebRootIdentity = {
-    namespace: options.paths.namespaceRoot.split("/").pop() ?? "default",
+    // basename() honors the platform separator (POSIX "/" vs Windows "\"). The
+    // previous split("/").pop() only worked on POSIX paths and returned the full
+    // path on Windows, which broke any consumer matching on the short namespace.
+    namespace: basename(options.paths.namespaceRoot) || "default",
     pid: options.pid,
     url: options.url,
     startedAt: new Date().toISOString(),

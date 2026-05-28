@@ -15,13 +15,16 @@ import {
 import {
   cleanupPackedWinNamespace,
   installPackedWinApp,
+  installPackedWinHeadless,
   inspectPackedWinApp,
   listPackedWinNamespaces,
   packWin,
   readPackedWinLogs,
   resetPackedWinNamespaces,
   startPackedWinApp,
+  startPackedWinHeadless,
   stopPackedWinApp,
+  stopPackedWinHeadless,
   uninstallPackedWinApp,
 } from "./win/index.js";
 import {
@@ -144,20 +147,22 @@ addWinLifecycleOptions(
     ),
     "win",
   ),
-).action(async (action: string, options: CliOptions) => {
+)
+  .option("--headless", "install/start/stop the headless (no-Electron) entry instead of the full desktop app")
+  .action(async (action: string, options: CliOptions) => {
   const config = resolveToolPackConfig("win", options);
   switch (action) {
     case "build":
       printJson(await packWin(config));
       return;
     case "install":
-      printJson(await installPackedWinApp(config));
+      printJson(await (options.headless ? installPackedWinHeadless(config) : installPackedWinApp(config)));
       return;
     case "start":
-      printJson(await startPackedWinApp(config));
+      printJson(await (options.headless ? startPackedWinHeadless(config) : startPackedWinApp(config)));
       return;
     case "stop":
-      printJson(await stopPackedWinApp(config));
+      printJson(await (options.headless ? stopPackedWinHeadless(config) : stopPackedWinApp(config)));
       return;
     case "logs":
       printLogs(await readPackedWinLogs(config), options);

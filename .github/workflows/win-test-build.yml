@@ -1,5 +1,5 @@
-# JUSTIFICATIVA-GHA: W2 — build de instalador Windows (binário multi-plataforma) para teste manual
-# ALTERNATIVA-DESCARTADA: build local no Mac inviável (NSIS + Node 24 exigem runner Windows); release-beta exige secrets R2 ausentes
+# JUSTIFICATIVA-GHA: W2 — validação do runtime headless do Open Design no Windows (binário multi-plataforma)
+# ALTERNATIVA-DESCARTADA: build/teste local no Mac inviável (Node 24 + Windows runtime exigem runner windows)
 name: win-test-build
 
 on:
@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build Open Design Windows (test, unsigned)
+  headless-smoke:
+    name: Windows headless smoke (no Electron, no NSIS)
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -33,34 +33,112 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup NSIS
+      - name: Reduce AV interference (electron.exe rename ENOENT)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # electron-builder's rename electron.exe -> product .exe intermittently hits ENOENT
+          # because Windows Defender briefly locks the freshly-extracted electron.exe. Exclude
+          # the build dirs + the electron process from realtime scanning.
+          try { Add-MpPreference -ExclusionPath "$env:RUNNER_TEMP" -ErrorAction Stop } catch { Write-Warning "exclusion RUNNER_TEMP: $_" }
+          try { Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron" -ErrorAction Stop } catch { Write-Warning $_ }
+          try { Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron-builder" -ErrorAction Stop } catch { Write-Warning $_ }
+          try { Add-MpPreference -ExclusionProcess "electron.exe" -ErrorAction Stop } catch { Write-Warning $_ }
+          Write-Host "Defender exclusions applied (best-effort)"
+
+      - name: Build Windows app dir (no NSIS, avoids makensis)
         shell: pwsh
         run: |
-          if ((Get-Command makensis.exe -ErrorAction SilentlyContinue) -or (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe")) {
-            exit 0
+          # electron-builder on Windows intermittently fails renaming electron.exe -> product .exe
+          # (Defender / file lock). Retry up to 3x, clearing the partial builder cache between tries.
+          $ErrorActionPreference = "Continue"
+          $ok = $false
+          for ($i = 1; $i -le 3; $i++) {
+            Write-Host "===== tools-pack win build (attempt $i/3) ====="
+            pnpm exec tools-pack win build `
+              --dir "$env:RUNNER_TEMP/tools-pack" `
+              --namespace win-test `
+              --portable `
+              --app-version "0.6.0-test" `
+              --to dir `
+              --json | Tee-Object -FilePath "$env:RUNNER_TEMP/win-build.json"
+            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            Write-Warning "build attempt $i failed (exit $LASTEXITCODE); clearing electron-builder cache + retrying"
+            Remove-Item -Recurse -Force "$env:RUNNER_TEMP/tools-pack/cache/entries/win.electron-builder-dir" -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 8
           }
-          choco install nsis -y --no-progress
+          if (-not $ok) { throw "tools-pack win build failed after 3 attempts" }
 
-      - name: Build Windows installer (NSIS, portable, unsigned)
+      - name: tools-pack win install --headless
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          pnpm exec tools-pack win build `
+          pnpm exec tools-pack win install --headless `
             --dir "$env:RUNNER_TEMP/tools-pack" `
             --namespace win-test `
             --portable `
             --app-version "0.6.0-test" `
-            --to nsis `
+            --json | Tee-Object -FilePath "$env:RUNNER_TEMP/install.json"
+
+      - name: tools-pack win start --headless and verify HTTP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $raw = pnpm exec tools-pack win start --headless `
+            --dir "$env:RUNNER_TEMP/tools-pack" `
+            --namespace win-test `
+            --portable `
+            --app-version "0.6.0-test" `
+            --json
+          $exit = $LASTEXITCODE
+          $raw | Out-File -FilePath "$env:RUNNER_TEMP/start.json" -Encoding utf8
+          Write-Host "===== start --headless raw output ====="
+          $raw
+          if ($exit -ne 0) {
+            Write-Host "===== sidecar logs (recursive *.log under tools-pack) ====="
+            Get-ChildItem -Path "$env:RUNNER_TEMP/tools-pack" -Recurse -Include *.log -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "----- $($_.FullName) -----"
+              Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 80
+            }
+            Write-Host "===== ALL files under tools-pack/runtime (tree) ====="
+            Get-ChildItem -Path "$env:RUNNER_TEMP/tools-pack/runtime" -Recurse -ErrorAction SilentlyContinue |
+              Select-Object FullName,Length | Format-Table -AutoSize | Out-String -Width 260
+            Write-Host "===== identity files (*-root.json) recursive under tools-pack ====="
+            Get-ChildItem -Path "$env:RUNNER_TEMP/tools-pack" -Recurse -Filter "*-root.json" -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "----- $($_.FullName) -----"
+              Get-Content $_.FullName -ErrorAction SilentlyContinue
+            }
+            throw "tools-pack win start --headless failed (exit $exit)"
+          }
+          $result = $raw | ConvertFrom-Json
+          $url = $result.status.url
+          Write-Host "Detected web URL => $url"
+          if (-not $url) { throw "no url in start --headless result" }
+          $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
+          Write-Host "HTTP status => $($resp.StatusCode)"
+          if ($resp.StatusCode -ge 400) { throw "Open Design web returned HTTP $($resp.StatusCode)" }
+          Write-Host "OK: tools-pack win --headless serves HTTP on Windows"
+
+      - name: tools-pack win stop --headless
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          pnpm exec tools-pack win stop --headless `
+            --dir "$env:RUNNER_TEMP/tools-pack" `
+            --namespace win-test `
+            --portable `
+            --app-version "0.6.0-test" `
             --json
 
-      - name: List build outputs
+      - name: Upload logs
         if: always()
-        shell: pwsh
-        run: Get-ChildItem -Recurse "$env:RUNNER_TEMP/tools-pack" -Include *.exe,*.nsis 2>$null | Select-Object FullName,Length
-
-      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: open-design-win-installer
-          path: ${{ runner.temp }}/tools-pack/**/*.exe
-          if-no-files-found: error
+          name: headless-smoke-logs
+          path: |
+            ${{ runner.temp }}/win-build.json
+            ${{ runner.temp }}/install.json
+            ${{ runner.temp }}/start.json
+            ${{ runner.temp }}/tools-pack/runtime/win/namespaces/win-test/logs/**/*.log
+          if-no-files-found: warn
