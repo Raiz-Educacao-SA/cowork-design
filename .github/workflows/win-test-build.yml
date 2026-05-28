@@ -1,0 +1,66 @@
+# JUSTIFICATIVA-GHA: W2 — build de instalador Windows (binário multi-plataforma) para teste manual
+# ALTERNATIVA-DESCARTADA: build local no Mac inviável (NSIS + Node 24 exigem runner Windows); release-beta exige secrets R2 ausentes
+name: win-test-build
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Open Design Windows (test, unsigned)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup NSIS
+        shell: pwsh
+        run: |
+          if ((Get-Command makensis.exe -ErrorAction SilentlyContinue) -or (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe")) {
+            exit 0
+          }
+          choco install nsis -y --no-progress
+
+      - name: Build Windows installer (NSIS, portable, unsigned)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          pnpm exec tools-pack win build `
+            --dir "$env:RUNNER_TEMP/tools-pack" `
+            --namespace win-test `
+            --portable `
+            --app-version "0.6.0-test" `
+            --to nsis `
+            --json
+
+      - name: List build outputs
+        if: always()
+        shell: pwsh
+        run: Get-ChildItem -Recurse "$env:RUNNER_TEMP/tools-pack" -Include *.exe,*.nsis 2>$null | Select-Object FullName,Length
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-design-win-installer
+          path: ${{ runner.temp }}/tools-pack/**/*.exe
+          if-no-files-found: error
