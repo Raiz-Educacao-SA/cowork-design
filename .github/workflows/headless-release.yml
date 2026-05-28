@@ -18,7 +18,7 @@ jobs:
     # windows-latest is being redirected to windows-2025 where electron-builder
     # rename electron.exe -> <Product>.exe ENOENT became deterministic; pinning
     # windows-2022 (stable known-good for this build) until upstream fixes.
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
