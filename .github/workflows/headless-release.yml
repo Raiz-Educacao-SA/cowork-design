@@ -1,0 +1,144 @@
+name: headless-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (ex: 0.6.0-test1). Será publicado como tag headless-v<version>.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    name: Build + publish Windows headless bundle
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Reduce AV interference (electron-builder rename ENOENT)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          try { Add-MpPreference -ExclusionPath "$env:RUNNER_TEMP" -ErrorAction Stop } catch { Write-Warning $_ }
+          try { Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron" -ErrorAction Stop } catch { Write-Warning $_ }
+          try { Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron-builder" -ErrorAction Stop } catch { Write-Warning $_ }
+          try { Add-MpPreference -ExclusionProcess "electron.exe" -ErrorAction Stop } catch { Write-Warning $_ }
+
+      - name: Build Windows app dir (with retry — electron-builder rename flake)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $ok = $false
+          for ($i = 1; $i -le 3; $i++) {
+            Write-Host "===== tools-pack win build (attempt $i/3) ====="
+            pnpm exec tools-pack win build `
+              --dir "$env:RUNNER_TEMP/tools-pack" `
+              --namespace headless-release `
+              --portable `
+              --app-version "${{ inputs.version }}" `
+              --to dir `
+              --json | Tee-Object -FilePath "$env:RUNNER_TEMP/win-build.json"
+            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            Write-Warning "build attempt $i failed (exit $LASTEXITCODE); clearing electron-builder cache + retrying"
+            Remove-Item -Recurse -Force "$env:RUNNER_TEMP/tools-pack/cache/entries/win.electron-builder-dir" -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 8
+          }
+          if (-not $ok) { throw "tools-pack win build failed after 3 attempts" }
+
+      - name: Zip headless bundle (win-unpacked tree only — the launcher consumes this)
+        id: zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $headless = Get-ChildItem -Path "$env:RUNNER_TEMP/tools-pack" -Recurse -Filter "headless.mjs" -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match "@open-design[\\/]packaged[\\/]dist[\\/]headless\.mjs$" } | Select-Object -First 1
+          if (-not $headless) { throw "headless.mjs not found in build output" }
+          $winUnpacked = ($headless.FullName -replace '(?i)(.*\\win-unpacked)\\.*', '$1')
+          Write-Host "win-unpacked => $winUnpacked"
+          $zipName = "open-design-headless-win-x64-${{ inputs.version }}.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP $zipName
+          # Compress the whole win-unpacked tree (resources/, *.exe, etc).
+          Compress-Archive -Path "$winUnpacked\*" -DestinationPath $zipPath -Force
+          $size = (Get-Item $zipPath).Length
+          Write-Host "zip ready: $zipPath ($size bytes)"
+          "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "zip_name=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Smoke check (electron-as-node serves HTTP)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $headless = Get-ChildItem -Path "$env:RUNNER_TEMP/tools-pack" -Recurse -Filter "headless.mjs" -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match "@open-design[\\/]packaged[\\/]dist[\\/]headless\.mjs$" } | Select-Object -First 1
+          $winUnpacked = ($headless.FullName -replace '(?i)(.*\\win-unpacked)\\.*', '$1')
+          $electron = Get-ChildItem -Path $winUnpacked -Filter "*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          $resourceRoot = Join-Path $winUnpacked "resources\open-design"
+          $dataDir = Join-Path $env:RUNNER_TEMP "od-data"
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          $log = Join-Path $env:RUNNER_TEMP "headless.log"
+          "" | Set-Content $log
+
+          $env:OD_NAMESPACE = "smoke"
+          $env:OD_DATA_DIR = $dataDir
+          $env:OD_RESOURCE_ROOT = $resourceRoot
+          $env:ELECTRON_RUN_AS_NODE = "1"
+          $env:OD_WEB_OUTPUT_MODE = "standalone"
+          $env:OD_WEB_STANDALONE_ROOT = (Join-Path (Split-Path $resourceRoot -Parent) "open-design-web-standalone")
+
+          $proc = Start-Process -FilePath $electron.FullName -ArgumentList @($headless.FullName) `
+            -WorkingDirectory (Split-Path $headless.FullName -Parent) `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err" `
+            -PassThru -NoNewWindow
+
+          $url = $null
+          $deadline = (Get-Date).AddSeconds(150)
+          while ((Get-Date) -lt $deadline -and -not $url) {
+            Start-Sleep -Seconds 3
+            $content = (Get-Content $log -Raw -ErrorAction SilentlyContinue) + (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue)
+            $m = [regex]::Match($content, "http://(127\.0\.0\.1|localhost):\d+")
+            if ($m.Success) { $url = $m.Value }
+            if ($proc.HasExited) { break }
+          }
+          if (-not $url) {
+            if (-not $proc.HasExited) { $proc.Kill() }
+            throw "headless did not report a web URL within 150s"
+          }
+          $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
+          if (-not $proc.HasExited) { $proc.Kill() }
+          if ($resp.StatusCode -ge 400) { throw "Open Design web returned HTTP $($resp.StatusCode)" }
+          Write-Host "OK: smoke passed at $url (HTTP $($resp.StatusCode))"
+
+      - name: Create GitHub Release with headless asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "headless-v${{ inputs.version }}"
+          $title = "Open Design Windows headless ${{ inputs.version }}"
+          gh release create $tag `
+            --repo Raiz-Educacao-SA/cowork-design `
+            --title "$title" `
+            --notes "Windows headless bundle for raiz-cowork-setup.exe (Electron as Node, Next.js standalone web). Smoke validated on this runner." `
+            "${{ steps.zip.outputs.zip_path }}"
