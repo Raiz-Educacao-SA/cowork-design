@@ -69,88 +69,59 @@ jobs:
           }
           if (-not $ok) { throw "tools-pack win build failed after 3 attempts" }
 
-      - name: Locate headless artifacts (electron runtime + headless.mjs)
-        id: locate
+      - name: tools-pack win install --headless
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $root = "$env:RUNNER_TEMP/tools-pack"
-          $headless = Get-ChildItem -Path $root -Recurse -Filter "headless.mjs" -ErrorAction SilentlyContinue |
-                  Where-Object { $_.FullName -match "@open-design[\\/]packaged[\\/]dist[\\/]headless\.mjs$" } | Select-Object -First 1
-          if (-not $headless) { throw "@open-design/packaged/dist/headless.mjs NOT found in build output" }
-          Write-Host "headless.mjs => $($headless.FullName)"
-          # win-unpacked root holds the electron exe + resources/
-          $winUnpacked = ($headless.FullName -replace '(?i)(.*\\win-unpacked)\\.*', '$1')
-          Write-Host "win-unpacked => $winUnpacked"
-          # The app Electron build has NO standalone node.exe; the bundled better-sqlite3 is
-          # compiled for Electron's ABI, so the runtime MUST be the electron exe via ELECTRON_RUN_AS_NODE.
-          $electron = Get-ChildItem -Path $winUnpacked -Filter "*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $electron) { throw "electron exe NOT found at $winUnpacked" }
-          Write-Host "electron     => $($electron.FullName)"
-          $resourceRoot = Join-Path $winUnpacked "resources\open-design"
-          Write-Host "OD_RESOURCE_ROOT => $resourceRoot"
-          "electron=$($electron.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "headless=$($headless.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "resource_root=$resourceRoot"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          pnpm exec tools-pack win install --headless `
+            --dir "$env:RUNNER_TEMP/tools-pack" `
+            --namespace win-test `
+            --portable `
+            --app-version "0.6.0-test" `
+            --json | Tee-Object -FilePath "$env:RUNNER_TEMP/install.json"
 
-      - name: Run headless and verify Open Design serves a URL
+      - name: tools-pack win start --headless and verify HTTP
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $electron = "${{ steps.locate.outputs.electron }}"
-          $headless = "${{ steps.locate.outputs.headless }}"
-          $resourceRoot = "${{ steps.locate.outputs.resource_root }}"
-          $dataDir = Join-Path $env:RUNNER_TEMP "od-data"
-          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-          $log = Join-Path $env:RUNNER_TEMP "headless.log"
-          "" | Set-Content $log
-
-          $env:OD_NAMESPACE = "win-test"
-          $env:OD_DATA_DIR = $dataDir
-          $env:OD_RESOURCE_ROOT = $resourceRoot
-          $env:ELECTRON_RUN_AS_NODE = "1"
-          # Windows packaged web ships as a Next.js standalone bundle (not server-mode node_modules)
-          $env:OD_WEB_OUTPUT_MODE = "standalone"
-          $env:OD_WEB_STANDALONE_ROOT = (Join-Path (Split-Path $resourceRoot -Parent) "open-design-web-standalone")
-          Write-Host "OD_WEB_STANDALONE_ROOT => $($env:OD_WEB_STANDALONE_ROOT)"
-
-          Write-Host "Spawning headless (electron as node): $electron $headless"
-          $proc = Start-Process -FilePath $electron -ArgumentList @($headless) `
-            -WorkingDirectory (Split-Path $headless -Parent) `
-            -RedirectStandardOutput $log -RedirectStandardError "$log.err" `
-            -PassThru -NoNewWindow
-
-          $url = $null
-          $deadline = (Get-Date).AddSeconds(150)
-          while ((Get-Date) -lt $deadline -and -not $url) {
-            Start-Sleep -Seconds 3
-            $content = (Get-Content $log -Raw -ErrorAction SilentlyContinue) + (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue)
-            $m = [regex]::Match($content, "http://(127\.0\.0\.1|localhost):\d+")
-            if ($m.Success) { $url = $m.Value }
-            if ($proc.HasExited) { break }
+          $raw = pnpm exec tools-pack win start --headless `
+            --dir "$env:RUNNER_TEMP/tools-pack" `
+            --namespace win-test `
+            --portable `
+            --app-version "0.6.0-test" `
+            --json
+          $exit = $LASTEXITCODE
+          $raw | Out-File -FilePath "$env:RUNNER_TEMP/start.json" -Encoding utf8
+          Write-Host "===== start --headless raw output ====="
+          $raw
+          if ($exit -ne 0) {
+            Write-Host "===== sidecar logs (recursive *.log under tools-pack) ====="
+            Get-ChildItem -Path "$env:RUNNER_TEMP/tools-pack" -Recurse -Include *.log -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "----- $($_.FullName) -----"
+              Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 80
+            }
+            throw "tools-pack win start --headless failed (exit $exit)"
           }
-
-          Write-Host "===== headless stdout ====="; Get-Content $log -ErrorAction SilentlyContinue
-          Write-Host "===== headless stderr ====="; Get-Content "$log.err" -ErrorAction SilentlyContinue
-          Write-Host "===== sidecar logs (recursive *.log under OD_DATA_DIR) ====="
-          Get-ChildItem -Path $dataDir -Recurse -Include *.log -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "----- $($_.FullName) -----"
-            Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 80
-          }
-          Write-Host "===== tree under OD_DATA_DIR ====="
-          Get-ChildItem -Path $dataDir -Recurse -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize | Out-String -Width 240
-
-          if (-not $url) {
-            if (-not $proc.HasExited) { $proc.Kill() }
-            throw "headless did not report a web URL within 150s"
-          }
+          $result = $raw | ConvertFrom-Json
+          $url = $result.status.url
           Write-Host "Detected web URL => $url"
-
+          if (-not $url) { throw "no url in start --headless result" }
           $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
           Write-Host "HTTP status => $($resp.StatusCode)"
-          if (-not $proc.HasExited) { $proc.Kill() }
           if ($resp.StatusCode -ge 400) { throw "Open Design web returned HTTP $($resp.StatusCode)" }
-          Write-Host "OK: Open Design headless serves HTTP on Windows"
+          Write-Host "OK: tools-pack win --headless serves HTTP on Windows"
+
+      - name: tools-pack win stop --headless
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          pnpm exec tools-pack win stop --headless `
+            --dir "$env:RUNNER_TEMP/tools-pack" `
+            --namespace win-test `
+            --portable `
+            --app-version "0.6.0-test" `
+            --json
 
       - name: Upload logs
         if: always()
@@ -158,7 +129,8 @@ jobs:
         with:
           name: headless-smoke-logs
           path: |
-            ${{ runner.temp }}/headless.log
-            ${{ runner.temp }}/headless.log.err
             ${{ runner.temp }}/win-build.json
+            ${{ runner.temp }}/install.json
+            ${{ runner.temp }}/start.json
+            ${{ runner.temp }}/tools-pack/runtime/win/namespaces/win-test/logs/**/*.log
           if-no-files-found: warn

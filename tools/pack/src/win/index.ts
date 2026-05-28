@@ -1,5 +1,15 @@
 export { packWin } from "./build.js";
 export {
+  installPackedWinHeadless,
+  startPackedWinHeadless,
+  stopPackedWinHeadless,
+} from "./headless.js";
+export type {
+  WinHeadlessInstallResult,
+  WinHeadlessStartResult,
+  WinHeadlessStopResult,
+} from "./headless.js";
+export {
   cleanupPackedWinNamespace,
   installPackedWinApp,
   inspectPackedWinApp,
