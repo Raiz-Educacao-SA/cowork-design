@@ -33,6 +33,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Reduce AV interference (electron.exe rename ENOENT)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # electron-builder's rename electron.exe -> product .exe intermittently hits ENOENT
+          # because Windows Defender briefly locks the freshly-extracted electron.exe. Exclude
+          # the build dirs + the electron process from realtime scanning.
+          try { Add-MpPreference -ExclusionPath "$env:RUNNER_TEMP" -ErrorAction Stop } catch { Write-Warning "exclusion RUNNER_TEMP: $_" }
+          try { Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron" -ErrorAction Stop } catch { Write-Warning $_ }
+          try { Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\electron-builder" -ErrorAction Stop } catch { Write-Warning $_ }
+          try { Add-MpPreference -ExclusionProcess "electron.exe" -ErrorAction Stop } catch { Write-Warning $_ }
+          Write-Host "Defender exclusions applied (best-effort)"
+
       - name: Build Windows app dir (no NSIS, avoids makensis)
         shell: pwsh
         run: |
